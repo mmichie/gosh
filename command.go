@@ -30,6 +30,7 @@ type Command struct {
 	EndTime     time.Time
 	Duration    time.Duration
 	ReturnCode  int
+	Background  bool
 }
 
 // NewCommand creates a new Command instance from the given text.
@@ -43,6 +44,10 @@ func NewCommand(commandText string) *Command {
 	}
 	if len(cmd.Parsed) > 1 {
 		cmd.Args = cmd.Parsed[1:]
+	}
+	if len(cmd.Args) > 0 && cmd.Args[len(cmd.Args)-1] == "&" {
+		cmd.Background = true
+		cmd.Args = cmd.Args[:len(cmd.Args)-1] // Remove the "&" from args
 	}
 	cmd.Alias = substituteAlias(cmd.Command, cmd.Args)
 	cmd.TTY, _ = os.Readlink("/proc/self/fd/0")
@@ -73,13 +78,30 @@ func (cmd *Command) Run() {
 	}
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+}
 
-	// Record the command execution in history
-	historyManager, _ := NewHistoryManager("") // Using the default path
-	if historyManager != nil {
-		err := historyManager.Insert(cmd, sessionID)
+func (cmd *Command) runExternal() {
+	executable, err := exec.LookPath(cmd.Command)
+	if err != nil {
+		log.Println("Command not found:", cmd.Command)
+		return
+	}
+	command := exec.Command(executable, cmd.Args...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if cmd.Background {
+		// If running in the background, start the process without waiting for it to finish
+		err = command.Start()
 		if err != nil {
-			log.Println("Error inserting command into history:", err)
+			log.Printf("Error executing %s: %v\n", cmd.CommandLine, err)
+			return
+		}
+		log.Printf("Started %s [PID: %d] in background\n", cmd.Command, command.Process.Pid)
+	} else {
+		// If not a background process, run normally and wait for it to finish
+		err = command.Run()
+		if err != nil {
+			log.Printf("Error executing %s: %v\n", cmd.CommandLine, err)
 		}
 	}
 }
@@ -97,21 +119,5 @@ func (cmd *Command) runBuiltin() {
 		execFunc(cmd)
 	} else {
 		log.Println("Command not recognized as a built-in")
-	}
-}
-
-// runExternal executes an external command using the exec package.
-func (cmd *Command) runExternal() {
-	executable, err := exec.LookPath(cmd.Command)
-	if err != nil {
-		log.Println("Command not found:", cmd.Command)
-		return
-	}
-	command := exec.Command(executable, cmd.Args...)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	err = command.Run()
-	if err != nil {
-		log.Printf("Error executing %s: %v\n", cmd.CommandLine, err)
 	}
 }
