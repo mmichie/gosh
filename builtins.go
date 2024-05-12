@@ -15,8 +15,8 @@ func init() {
 	builtins["pwd"] = pwd
 	builtins["exit"] = exitShell
 	builtins["echo"] = echo
-	// Delay adding 'help' to avoid initialization cycle
 	builtins["help"] = help
+	builtins["history"] = history
 }
 
 // help displays help for built-in commands.
@@ -55,4 +55,21 @@ func exitShell(cmd *Command) {
 // echo prints its arguments.
 func echo(cmd *Command) {
 	fmt.Println(strings.Join(cmd.Args, " "))
+}
+
+// history dumps the command history.
+func history(cmd *Command) {
+	historyManager, err := NewHistoryManager("")
+	if err != nil {
+		fmt.Println("Failed to open history database:", err)
+		return
+	}
+	records, err := historyManager.Dump()
+	if err != nil {
+		fmt.Println("Error retrieving history:", err)
+		return
+	}
+	for _, record := range records {
+		fmt.Println(record)
+	}
 }

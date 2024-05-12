@@ -2,9 +2,11 @@ package gosh
 
 import (
 	"database/sql"
+	"os"
+	"path/filepath"
 	"strings"
 
-	_ "github.com/mattn/go-sqlite3" // Import go-sqlite3 library
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // HistoryManager manages the command history stored in SQLite.
@@ -12,8 +14,16 @@ type HistoryManager struct {
 	db *sql.DB
 }
 
-// NewHistoryManager initializes a new history manager.
+// NewHistoryManager initializes a new history manager with a default or specified database path.
 func NewHistoryManager(dbPath string) (*HistoryManager, error) {
+	if dbPath == "" {
+		homeDir, err := os.UserHomeDir() // Get user home directory
+		if err != nil {
+			return nil, err // Handle errors retrieving the home directory
+		}
+		dbPath = filepath.Join(homeDir, ".gosh_history.sqlite") // Construct default path
+	}
+
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err

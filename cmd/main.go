@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"gosh" // Assuming your module name is gosh; adjust based on your module declaration in go.mod
+	"gosh"
 )
 
 func main() {
@@ -26,7 +26,7 @@ func main() {
 			continue
 		}
 
-		command := gosh.NewCommand(input) // Same assumption as above
+		command := gosh.NewCommand(input)
 		command.Run()
 	}
 }
