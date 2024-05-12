@@ -14,27 +14,45 @@ type HistoryManager struct {
 	db *sql.DB
 }
 
-// NewHistoryManager initializes a new history manager with a default or specified database path.
 func NewHistoryManager(dbPath string) (*HistoryManager, error) {
 	if dbPath == "" {
-		homeDir, err := os.UserHomeDir() // Get user home directory
+		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return nil, err // Handle errors retrieving the home directory
+			return nil, err
 		}
-		dbPath = filepath.Join(homeDir, ".gosh_history.sqlite") // Construct default path
+		dbPath = filepath.Join(homeDir, ".gosh_history.sqlite")
 	}
 
 	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		return nil, err
 	}
+
+	createTableSQL := `
+    CREATE TABLE IF NOT EXISTS command(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id INTEGER NOT NULL,
+        tty VARCHAR(20) NOT NULL,
+        euid INT NOT NULL,
+        cwd VARCHAR(256) NOT NULL,
+        return_code INT NOT NULL,
+        start_time INTEGER NOT NULL,
+        end_time INTEGER NOT NULL,
+        duration INTEGER NOT NULL,
+        command VARCHAR(1000) NOT NULL,
+        args VARCHAR(1000) NOT NULL
+    );`
+	_, err = db.Exec(createTableSQL)
+	if err != nil {
+		return nil, err
+	}
+
 	return &HistoryManager{db: db}, nil
 }
 
-// Insert inserts a new command into the history.
-func (h *HistoryManager) Insert(cmd *Command) error {
-	_, err := h.db.Exec("INSERT INTO command (command, args, return_code) VALUES (?, ?, ?)",
-		cmd.Command, strings.Join(cmd.Args, " "), cmd.ReturnCode)
+func (h *HistoryManager) Insert(cmd *Command, sessionID int) error {
+	insertSQL := `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, args, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	_, err := h.db.Exec(insertSQL, sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), cmd.Command, strings.Join(cmd.Args, " "), cmd.ReturnCode)
 	return err
 }
 

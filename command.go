@@ -13,6 +13,8 @@ var Aliases = map[string]string{
 	"ls": "ls -G",
 }
 
+const sessionID = 1
+
 // Command represents a command to be executed.
 type Command struct {
 	Text        string
@@ -62,7 +64,6 @@ func substituteAlias(command string, args []string) string {
 	return strings.Join(append([]string{command}, args...), " ")
 }
 
-// Run executes the command based on whether it is a built-in or an external command.
 func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
 	if isBuiltin(cmd.Command) {
@@ -72,6 +73,15 @@ func (cmd *Command) Run() {
 	}
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+
+	// Record the command execution in history
+	historyManager, _ := NewHistoryManager("") // Using the default path
+	if historyManager != nil {
+		err := historyManager.Insert(cmd, sessionID)
+		if err != nil {
+			log.Println("Error inserting command into history:", err)
+		}
+	}
 }
 
 // isBuiltin checks if the command is a built-in shell command.
