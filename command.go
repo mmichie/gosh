@@ -13,25 +13,49 @@ import (
 )
 
 type Redirection struct {
-	Operator string `parser:"@Operator"`
-	File     string `parser:"@Ident|@String"`
+	Operator      string `parser:"@Operator"`
+	Word          string `parser:"@Ident|@String"`
+	FileDescriptor int
+}
+
+type SimpleCommandElement struct {
+	Word          string       `parser:"@Ident|@String"`
+	AssignmentWord string      `parser:"@Ident '='"`
+	Redirection   *Redirection `parser:"@@"`
+}
+
+type SimpleCommand struct {
+	Elements []*SimpleCommandElement `parser:"@@*"`
+}
+
+type ShellCommand struct {
+	SimpleCommand *SimpleCommand `parser:"@@"`
+}
+
+type PipelineCommand struct {
+	Bang         bool          `parser:"@'!'?"`
+	Timespec     *Timespec     `parser:"@@?"`
+	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
+}
+
+type Timespec struct {
+	Opt string `parser:"'time' @Ident?"`
 }
 
 type Command struct {
-	Name        string       `parser:"@Ident"`
-	Args        []string     `parser:"(@Ident | @String)*"`
-	Redirection *Redirection `parser:"(@@)?"`
-	Background  bool         `parser:"[@ \"&\"]"`
-	Pipe        *Command     `parser:"( \"|\" @@ )?"`
-	Stdin       io.Reader
-	Stdout      io.Writer
-	StartTime   time.Time
-	EndTime     time.Time
-	Duration    time.Duration
-	TTY         string
-	EUID        int
-	CWD         string
-	ReturnCode  int
+	SimpleCommand   *SimpleCommand   `parser:"@@"`
+	PipelineCommand *PipelineCommand `parser:"| @@"`
+	Redirections    []*Redirection   `parser:"@@*"`
+	Background      bool             `parser:"@'&'?"`
+	Stdin           io.Reader
+	Stdout          io.Writer
+	StartTime       time.Time
+	EndTime         time.Time
+	Duration        time.Duration
+	TTY             string
+	EUID            int
+	CWD             string
+	ReturnCode      int
 }
 
 var parser = participle.MustBuild[Command](
@@ -39,7 +63,16 @@ var parser = participle.MustBuild[Command](
 		{Name: "Operator", Pattern: `[<>|&]`},
 		{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
 		{Name: "String", Pattern: `"(\\"|[^"])*"`},
+		{Name: "SingleQuotedString", Pattern: `'(\\"|[^'])*'`},
 		{Name: "Whitespace", Pattern: `\s+`},
+		{Name: "Pipe", Pattern: `\|`},
+		{Name: "Ampersand", Pattern: `&`},
+		{Name: "Semicolon", Pattern: `;`},
+		{Name: "GreaterThan", Pattern: `>`},
+		{Name: "LessThan", Pattern: `<`},
+		{Name: "DoubleGreaterThan", Pattern: `>>`},
+		{Name: "DoubleLessThan", Pattern: `<<`},
+		{Name: "Number", Pattern: `\d+`},
 	})),
 )
 
@@ -60,83 +93,117 @@ func (cmd *Command) Read(p []byte) (n int, err error) {
 
 func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
-	if cmd.Pipe != nil {
-		cmd.pipeExec()
+	if cmd.PipelineCommand != nil {
+		cmd.pipelineExec()
 	} else {
-		cmd.execute()
+		cmd.simpleExec()
 	}
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 }
 
-func (cmd *Command) execute() {
-	executable, err := exec.LookPath(cmd.Name)
+func (cmd *Command) simpleExec() {
+	executable, err := exec.LookPath(cmd.SimpleCommand.Elements[0].Word)
 	if err != nil {
-		log.Printf("Command not found: %s", cmd.Name)
+		log.Printf("Command not found: %s", cmd.SimpleCommand.Elements[0].Word)
 		return
 	}
 
-	process := exec.Command(executable, cmd.Args...)
+	var args []string
+	for _, element := range cmd.SimpleCommand.Elements[1:] {
+		args = append(args, element.Word)
+	}
+
+	process := exec.Command(executable, args...)
 	setupRedirection(process, cmd)
 
 	if cmd.Background {
 		err = process.Start()
 		if err != nil {
-			log.Printf("Error executing %s in background: %v", cmd.Name, err)
+			log.Printf("Error executing %s in background: %v", cmd.SimpleCommand.Elements[0].Word, err)
 			return
 		}
-		log.Printf("Started %s [PID: %d] in background", cmd.Name, process.Process.Pid)
+		log.Printf("Started %s [PID: %d] in background", cmd.SimpleCommand.Elements[0].Word, process.Process.Pid)
 	} else {
 		err = process.Run()
 		if err != nil {
-			log.Printf("Error executing %s: %v", cmd.Name, err)
+			log.Printf("Error executing %s: %v", cmd.SimpleCommand.Elements[0].Word, err)
 		}
 	}
 }
 
 func setupRedirection(process *exec.Cmd, cmd *Command) {
-	if cmd.Redirection != nil && cmd.Redirection.Operator != "" && cmd.Redirection.File != "" {
+	for _, redirection := range cmd.Redirections {
 		var file *os.File
 		var err error
-		if cmd.Redirection.Operator == ">" || cmd.Redirection.Operator == ">>" {
-			file, err = os.OpenFile(cmd.Redirection.File, os.O_CREATE|os.O_WRONLY|(func() int {
-				if cmd.Redirection.Operator == ">>" {
+		if redirection.Operator == ">" || redirection.Operator == ">>" {
+			file, err = os.OpenFile(redirection.Word, os.O_CREATE|os.O_WRONLY|(func() int {
+				if redirection.Operator == ">>" {
 					return os.O_APPEND
 				}
 				return os.O_TRUNC
 			}()), 0644)
-		} else if cmd.Redirection.Operator == "<" {
-			file, err = os.Open(cmd.Redirection.File)
+		} else if redirection.Operator == "<" {
+			file, err = os.Open(redirection.Word)
 		}
 		if err != nil {
-			log.Printf("Error opening file %s for redirection: %v", cmd.Redirection.File, err)
+			log.Printf("Error opening file %s for redirection: %v", redirection.Word, err)
 			return
 		}
-		switch cmd.Redirection.Operator {
-		case ">":
-			process.Stdout = file
-		case "<":
-			process.Stdin = file
-		case ">>":
-			process.Stdout = file
+		if redirection.FileDescriptor != 0 {
+			process.ExtraFiles = append(process.ExtraFiles, file)
+		} else {
+			switch redirection.Operator {
+			case ">":
+				process.Stdout = file
+			case "<":
+				process.Stdin = file
+			case ">>":
+				process.Stdout = file
+			}
 		}
 	}
 }
 
-func (cmd *Command) pipeExec() {
-	pr, pw := io.Pipe()
-	cmd.Stdout = pw
-	cmd.Pipe.Stdin = pr
+func (cmd *Command) pipelineExec() {
+	var commands []*exec.Cmd
+	for _, shellCommand := range cmd.PipelineCommand.PipeCommands {
+		executable, err := exec.LookPath(shellCommand.SimpleCommand.Elements[0].Word)
+		if err != nil {
+			log.Printf("Command not found: %s", shellCommand.SimpleCommand.Elements[0].Word)
+			return
+		}
 
-	go cmd.Pipe.Run()
-	cmd.execute()
+		var args []string
+		for _, element := range shellCommand.SimpleCommand.Elements[1:] {
+			args = append(args, element.Word)
+		}
 
-	err := pw.Close()
-	if err != nil {
-		log.Printf("Error closing pipe writer: %v", err)
+		command := exec.Command(executable, args...)
+		commands = append(commands, command)
 	}
-	err = pr.Close()
-	if err != nil {
-		log.Printf("Error closing pipe reader: %v", err)
+
+	for i := 0; i < len(commands)-1; i++ {
+		pipe, err := commands[i].StdoutPipe()
+		if err != nil {
+			log.Printf("Error creating pipe: %v", err)
+			return
+		}
+		commands[i+1].Stdin = pipe
+	}
+
+	for _, command := range commands {
+		err := command.Start()
+		if err != nil {
+			log.Printf("Error starting command: %v", err)
+			return
+		}
+	}
+
+	for _, command := range commands {
+		err := command.Wait()
+		if err != nil {
+			log.Printf("Error waiting for command: %v", err)
+		}
 	}
 }
