@@ -31,11 +31,28 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{"Whitespace", `\s+`},
 })
 
-var parser = participle.MustBuild[Command](
-	participle.Lexer(shellLexer),
-	participle.UseLookahead(2),
-	participle.Elide("Whitespace"),
-)
+type SimpleCommandElement struct {
+	Word string `parser:"@Ident"`
+}
+
+type SimpleCommand struct {
+	Command string   `parser:"@Ident"`
+	Args    []string `parser:"(@Whitespace @Ident)*"`
+}
+
+type ShellCommand struct {
+	SimpleCommand *SimpleCommand `parser:"@@"`
+}
+
+type PipelineCommand struct {
+	Bang         bool            `parser:"@'!'?"`
+	Timespec     *Timespec       `parser:"@@?"`
+	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
+}
+
+type Timespec struct {
+	Opt string `parser:"'time' @Ident?"`
+}
 
 type Command struct {
 	SimpleCommand   *SimpleCommand   `parser:"@@"`
@@ -83,6 +100,24 @@ type Timespec struct {
 	Opt string `parser:"'time' @Ident?"`
 }
 
+var parser = participle.MustBuild[Command](
+	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
+		{Name: "Ident", Pattern: `[a-zA-Z0-9_\-\.\/]+`},
+		{Name: "String", Pattern: `"(\\"|[^"])*"`},
+		{Name: "SingleQuotedString", Pattern: `'(\\"|[^'])*'`},
+		{Name: "Whitespace", Pattern: `\s+`},
+		{Name: "Pipe", Pattern: `\|`},
+		{Name: "Ampersand", Pattern: `&`},
+		{Name: "Semicolon", Pattern: `;`},
+		{Name: "GreaterThan", Pattern: `>`},
+		{Name: "LessThan", Pattern: `<`},
+		{Name: "DoubleGreaterThan", Pattern: `>>`},
+		{Name: "DoubleLessThan", Pattern: `<<`},
+		{Name: "Number", Pattern: `\d+`},
+		{Name: "Operator", Pattern: `[<>|&;]`},
+	})),
+)
+
 // NewCommand parses the input command string and returns a Command struct instance.
 func NewCommand(input string) (*Command, error) {
 	command, err := parser.ParseString("", input)
@@ -110,34 +145,26 @@ func (cmd *Command) Run() {
 }
 
 func (cmd *Command) simpleExec() {
-	executable, err := exec.LookPath(cmd.SimpleCommand.Elements[0].Word)
+	executable, err := exec.LookPath(cmd.SimpleCommand.Command)
 	if err != nil {
-		log.Printf("Command not found: %s", cmd.SimpleCommand.Elements[0].Word)
+		log.Printf("Command not found: %s", cmd.SimpleCommand.Command)
 		return
 	}
 
-	var args []string
-	for _, element := range cmd.SimpleCommand.Elements[1:] {
-		args = append(args, element.Word)
-	}
-
-	// Add diagnostic logging to see the command and arguments
-	log.Printf("Executing command: %s, args: %v", executable, args)
-
-	process := exec.Command(executable, args...)
+	process := exec.Command(executable, cmd.SimpleCommand.Args...)
 	setupRedirection(process, cmd)
 
 	if cmd.Background {
 		err = process.Start()
 		if err != nil {
-			log.Printf("Error executing %s in background: %v", cmd.SimpleCommand.Elements[0].Word, err)
+			log.Printf("Error executing %s in background: %v", cmd.SimpleCommand.Command, err)
 			return
 		}
-		log.Printf("Started %s [PID: %d] in background", cmd.SimpleCommand.Elements[0].Word, process.Process.Pid)
+		log.Printf("Started %s [PID: %d] in background", cmd.SimpleCommand.Command, process.Process.Pid)
 	} else {
 		err = process.Run()
 		if err != nil {
-			log.Printf("Error executing %s: %v", cmd.SimpleCommand.Elements[0].Word, err)
+			log.Printf("Error executing %s: %v", cmd.SimpleCommand.Command, err)
 		}
 	}
 }
@@ -178,18 +205,13 @@ func setupRedirection(process *exec.Cmd, cmd *Command) {
 func (cmd *Command) pipelineExec() {
 	var commands []*exec.Cmd
 	for _, shellCommand := range cmd.PipelineCommand.PipeCommands {
-		executable, err := exec.LookPath(shellCommand.SimpleCommand.Elements[0].Word)
+		executable, err := exec.LookPath(shellCommand.SimpleCommand.Command)
 		if err != nil {
-			log.Printf("Command not found: %s", shellCommand.SimpleCommand.Elements[0].Word)
+			log.Printf("Command not found: %s", shellCommand.SimpleCommand.Command)
 			return
 		}
 
-		var args []string
-		for _, element := range shellCommand.SimpleCommand.Elements[1:] {
-			args = append(args, element.Word)
-		}
-
-		command := exec.Command(executable, args...)
+		command := exec.Command(executable, shellCommand.SimpleCommand.Args...)
 		commands = append(commands, command)
 	}
 

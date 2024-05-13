@@ -30,10 +30,10 @@ func help(cmd *Command) {
 // cd changes the current working directory.
 func cd(cmd *Command) {
 	var dir string
-	if len(cmd.SimpleCommand.Elements) == 1 {
+	if len(cmd.SimpleCommand.Args) == 0 {
 		dir = os.Getenv("HOME")
 	} else {
-		dir = cmd.SimpleCommand.Elements[1].Word
+		dir = cmd.SimpleCommand.Args[0]
 	}
 	if err := os.Chdir(dir); err != nil {
 		fmt.Println("cd:", err)
@@ -56,11 +56,7 @@ func exitShell(cmd *Command) {
 
 // echo prints its arguments.
 func echo(cmd *Command) {
-	var args []string
-	for _, element := range cmd.SimpleCommand.Elements[1:] {
-		args = append(args, element.Word)
-	}
-	fmt.Println(strings.Join(args, " "))
+	fmt.Println(strings.Join(cmd.SimpleCommand.Args, " "))
 }
 
 // history dumps the command history.
