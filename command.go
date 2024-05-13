@@ -12,35 +12,30 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
-type Redirection struct {
-	Operator      string `parser:"@Operator"`
-	Word          string `parser:"@Ident|@String"`
-	FileDescriptor int
-}
+// Redefining the lexer with an 'Operator' token included.
+var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
+	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
+	{"Path", `/?[\w./-]+`},
+	{"Option", `-\w+`},
+	{"String", `"(\\\\"|[^"])*"`},
+	{"SingleQuotedString", `'(\\\\'|[^'])*'`},
+	{"Operator", `[<>|&;]+`}, // Adding Operator which includes common shell operators
+	{"Pipe", `\\|`},
+	{"Ampersand", `&`},
+	{"Semicolon", `;`},
+	{"GreaterThan", `>`},
+	{"LessThan", `<`},
+	{"DoubleGreaterThan", `>>`},
+	{"DoubleLessThan", `<<`},
+	{"Number", `\d+`},
+	{"Whitespace", `\s+`},
+})
 
-type SimpleCommandElement struct {
-	Word          string       `parser:"@Ident|@String"`
-	AssignmentWord string      `parser:"@Ident '='"`
-	Redirection   *Redirection `parser:"@@"`
-}
-
-type SimpleCommand struct {
-	Elements []*SimpleCommandElement `parser:"@@*"`
-}
-
-type ShellCommand struct {
-	SimpleCommand *SimpleCommand `parser:"@@"`
-}
-
-type PipelineCommand struct {
-	Bang         bool          `parser:"@'!'?"`
-	Timespec     *Timespec     `parser:"@@?"`
-	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
-}
-
-type Timespec struct {
-	Opt string `parser:"'time' @Ident?"`
-}
+var parser = participle.MustBuild[Command](
+	participle.Lexer(shellLexer),
+	participle.UseLookahead(2),
+	participle.Elide("Whitespace"),
+)
 
 type Command struct {
 	SimpleCommand   *SimpleCommand   `parser:"@@"`
@@ -58,23 +53,35 @@ type Command struct {
 	ReturnCode      int
 }
 
-var parser = participle.MustBuild[Command](
-	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
-		{Name: "Operator", Pattern: `[<>|&]`},
-		{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
-		{Name: "String", Pattern: `"(\\"|[^"])*"`},
-		{Name: "SingleQuotedString", Pattern: `'(\\"|[^'])*'`},
-		{Name: "Whitespace", Pattern: `\s+`},
-		{Name: "Pipe", Pattern: `\|`},
-		{Name: "Ampersand", Pattern: `&`},
-		{Name: "Semicolon", Pattern: `;`},
-		{Name: "GreaterThan", Pattern: `>`},
-		{Name: "LessThan", Pattern: `<`},
-		{Name: "DoubleGreaterThan", Pattern: `>>`},
-		{Name: "DoubleLessThan", Pattern: `<<`},
-		{Name: "Number", Pattern: `\d+`},
-	})),
-)
+type SimpleCommand struct {
+	Elements []*SimpleCommandElement `parser:"@@*"`
+}
+
+type SimpleCommandElement struct {
+	Word           string       `parser:"@Path|@Option|@Ident|@String"`
+	AssignmentWord string       `parser:"@Ident '='"`
+	Redirection    *Redirection `parser:"@@"`
+}
+
+type ShellCommand struct {
+	SimpleCommand *SimpleCommand `parser:"@@"`
+}
+
+type PipelineCommand struct {
+	Bang         bool            `parser:"@'!'?"`
+	Timespec     *Timespec       `parser:"@@?"`
+	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
+}
+
+type Redirection struct {
+	Operator       string `parser:"@Operator"`
+	Word           string `parser:"@Ident|@String"`
+	FileDescriptor int
+}
+
+type Timespec struct {
+	Opt string `parser:"'time' @Ident?"`
+}
 
 // NewCommand parses the input command string and returns a Command struct instance.
 func NewCommand(input string) (*Command, error) {
@@ -113,6 +120,9 @@ func (cmd *Command) simpleExec() {
 	for _, element := range cmd.SimpleCommand.Elements[1:] {
 		args = append(args, element.Word)
 	}
+
+	// Add diagnostic logging to see the command and arguments
+	log.Printf("Executing command: %s, args: %v", executable, args)
 
 	process := exec.Command(executable, args...)
 	setupRedirection(process, cmd)
