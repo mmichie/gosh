@@ -3,40 +3,53 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
 	"strings"
+	"time"
 
 	"gosh"
 )
 
 func main() {
-	session := gosh.NewSession() // Initializes a new session
-	fmt.Printf("Session started at %v by user %d (%s)\n", session.StartTime, session.UserID, session.UserName)
+	log.SetFlags(0)
+	log.SetPrefix("")
 
-	reader := bufio.NewReader(os.Stdin)
+	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
+
 	fmt.Println("Welcome to gosh Shell")
+	fmt.Print("> ")
 
-	for {
-		fmt.Print("> ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			if err == bufio.ErrBufferFull {
-				fmt.Println("Input buffer overflow. Please try again.")
-				continue
-			} else if err.Error() == "EOF" { // Handle EOF when Ctrl-D is pressed.
-				fmt.Println("\nExit command received. Exiting gosh shell.")
-				os.Exit(0)
-			}
-			fmt.Println("An error occurred:", err)
-			continue
-		}
-
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		input := scanner.Text()
 		input = strings.TrimSpace(input)
+
+		if input == "exit" || input == "quit" {
+			fmt.Println("Exiting gosh Shell...")
+			break
+		}
+
 		if input == "" {
+			fmt.Print("> ")
 			continue
 		}
 
-		command := gosh.NewCommand(input)
+		command, err := gosh.NewCommand(input)
+		if err != nil {
+			log.Printf("Error creating command: %v", err)
+			fmt.Print("> ")
+			continue
+		}
+
+		command.Stdin = os.Stdin
+		command.Stdout = os.Stdout
 		command.Run()
+
+		fmt.Print("> ")
+	}
+
+	if err := scanner.Err(); err != nil {
+		log.Printf("Error reading input: %v", err)
 	}
 }

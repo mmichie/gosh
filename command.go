@@ -1,123 +1,142 @@
 package gosh
 
 import (
+	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
+
+	"github.com/alecthomas/participle/v2"
+	"github.com/alecthomas/participle/v2/lexer"
 )
 
-// Aliases maps command names to their respective alias commands.
-var Aliases = map[string]string{
-	"ls": "ls -G",
+type Redirection struct {
+	Operator string `parser:"@Operator"`
+	File     string `parser:"@Ident|@String"`
 }
 
-const sessionID = 1
-
-// Command represents a command to be executed.
 type Command struct {
-	Text        string
-	Parsed      []string
-	Command     string
-	Args        []string
-	Alias       string
-	CommandLine string
-	TTY         string
-	EUID        int
-	CWD         string
+	Name        string       `parser:"@Ident"`
+	Args        []string     `parser:"(@Ident | @String)*"`
+	Redirection *Redirection `parser:"(@@)?"`
+	Background  bool         `parser:"[@ \"&\"]"`
+	Pipe        *Command     `parser:"( \"|\" @@ )?"`
+	Stdin       io.Reader
+	Stdout      io.Writer
 	StartTime   time.Time
 	EndTime     time.Time
 	Duration    time.Duration
+	TTY         string
+	EUID        int
+	CWD         string
 	ReturnCode  int
-	Background  bool
 }
 
-// NewCommand creates a new Command instance from the given text.
-func NewCommand(commandText string) *Command {
-	cmd := &Command{Text: commandText}
-	cmd.Parsed = parseCommand(commandText)
-	if len(cmd.Parsed) == 0 {
-		cmd.Command = ""
-	} else {
-		cmd.Command = cmd.Parsed[0]
+var parser = participle.MustBuild[Command](
+	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
+		{Name: "Operator", Pattern: `[<>|&]`},
+		{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
+		{Name: "String", Pattern: `"(\\"|[^"])*"`},
+		{Name: "Whitespace", Pattern: `\s+`},
+	})),
+)
+
+// NewCommand parses the input command string and returns a Command struct instance.
+func NewCommand(input string) (*Command, error) {
+	command, err := parser.ParseString("", input)
+	if err != nil {
+		log.Printf("Failed to parse command string: %s, error: %v", input, err)
+		return nil, fmt.Errorf("parse error: %v", err)
 	}
-	if len(cmd.Parsed) > 1 {
-		cmd.Args = cmd.Parsed[1:]
-	}
-	if len(cmd.Args) > 0 && cmd.Args[len(cmd.Args)-1] == "&" {
-		cmd.Background = true
-		cmd.Args = cmd.Args[:len(cmd.Args)-1] // Remove the "&" from args
-	}
-	cmd.Alias = substituteAlias(cmd.Command, cmd.Args)
-	cmd.TTY, _ = os.Readlink("/proc/self/fd/0")
-	cmd.EUID = os.Geteuid()
-	cmd.CWD, _ = os.Getwd()
-	return cmd
+	log.Printf("Parsed command: %+v", command)
+	return command, nil
 }
 
-// parseCommand splits the command text into parts.
-func parseCommand(commandText string) []string {
-	return strings.Fields(commandText)
-}
-
-// substituteAlias checks for aliases and substitutes them if found.
-func substituteAlias(command string, args []string) string {
-	if alias, found := Aliases[command]; found {
-		return alias + " " + strings.Join(args, " ")
-	}
-	return strings.Join(append([]string{command}, args...), " ")
+func (cmd *Command) Read(p []byte) (n int, err error) {
+	return cmd.Stdin.Read(p)
 }
 
 func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
-	if isBuiltin(cmd.Command) {
-		cmd.runBuiltin()
+	if cmd.Pipe != nil {
+		cmd.pipeExec()
 	} else {
-		cmd.runExternal()
+		cmd.execute()
 	}
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 }
 
-func (cmd *Command) runExternal() {
-	executable, err := exec.LookPath(cmd.Command)
+func (cmd *Command) execute() {
+	executable, err := exec.LookPath(cmd.Name)
 	if err != nil {
-		log.Println("Command not found:", cmd.Command)
+		log.Printf("Command not found: %s", cmd.Name)
 		return
 	}
-	command := exec.Command(executable, cmd.Args...)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
+
+	process := exec.Command(executable, cmd.Args...)
+	setupRedirection(process, cmd)
+
 	if cmd.Background {
-		// If running in the background, start the process without waiting for it to finish
-		err = command.Start()
+		err = process.Start()
 		if err != nil {
-			log.Printf("Error executing %s: %v\n", cmd.CommandLine, err)
+			log.Printf("Error executing %s in background: %v", cmd.Name, err)
 			return
 		}
-		log.Printf("Started %s [PID: %d] in background\n", cmd.Command, command.Process.Pid)
+		log.Printf("Started %s [PID: %d] in background", cmd.Name, process.Process.Pid)
 	} else {
-		// If not a background process, run normally and wait for it to finish
-		err = command.Run()
+		err = process.Run()
 		if err != nil {
-			log.Printf("Error executing %s: %v\n", cmd.CommandLine, err)
+			log.Printf("Error executing %s: %v", cmd.Name, err)
 		}
 	}
 }
 
-// isBuiltin checks if the command is a built-in shell command.
-func isBuiltin(command string) bool {
-	_, found := builtins[command]
-	return found
+func setupRedirection(process *exec.Cmd, cmd *Command) {
+	if cmd.Redirection != nil && cmd.Redirection.Operator != "" && cmd.Redirection.File != "" {
+		var file *os.File
+		var err error
+		if cmd.Redirection.Operator == ">" || cmd.Redirection.Operator == ">>" {
+			file, err = os.OpenFile(cmd.Redirection.File, os.O_CREATE|os.O_WRONLY|(func() int {
+				if cmd.Redirection.Operator == ">>" {
+					return os.O_APPEND
+				}
+				return os.O_TRUNC
+			}()), 0644)
+		} else if cmd.Redirection.Operator == "<" {
+			file, err = os.Open(cmd.Redirection.File)
+		}
+		if err != nil {
+			log.Printf("Error opening file %s for redirection: %v", cmd.Redirection.File, err)
+			return
+		}
+		switch cmd.Redirection.Operator {
+		case ">":
+			process.Stdout = file
+		case "<":
+			process.Stdin = file
+		case ">>":
+			process.Stdout = file
+		}
+	}
 }
 
-// runBuiltin executes a built-in command.
-func (cmd *Command) runBuiltin() {
-	// Built-in command execution logic will be implemented here.
-	if execFunc, found := builtins[cmd.Command]; found {
-		execFunc(cmd)
-	} else {
-		log.Println("Command not recognized as a built-in")
+func (cmd *Command) pipeExec() {
+	pr, pw := io.Pipe()
+	cmd.Stdout = pw
+	cmd.Pipe.Stdin = pr
+
+	go cmd.Pipe.Run()
+	cmd.execute()
+
+	err := pw.Close()
+	if err != nil {
+		log.Printf("Error closing pipe writer: %v", err)
+	}
+	err = pr.Close()
+	if err != nil {
+		log.Printf("Error closing pipe reader: %v", err)
 	}
 }
