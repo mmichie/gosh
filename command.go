@@ -10,12 +10,6 @@ import (
 	"gosh/parser"
 )
 
-type Redirection struct {
-	Operator       string `parser:"@Operator"`
-	Word           string `parser:"@Ident|@String"`
-	FileDescriptor int
-}
-
 type Command struct {
 	*parser.Command
 	Redirections []*Redirection `parser:"@@*"`
@@ -31,6 +25,12 @@ type Command struct {
 	ReturnCode   int
 }
 
+type Redirection struct {
+	Operator       string `parser:"@Operator"`
+	Word           string `parser:"@Word"`
+	FileDescriptor int    `parser:"@Int"`
+}
+
 func NewCommand(input string) (*Command, error) {
 	parsedCmd, err := parser.Parse(input)
 	if err != nil {
@@ -39,45 +39,67 @@ func NewCommand(input string) (*Command, error) {
 	return &Command{Command: parsedCmd}, nil
 }
 
-func (cmd *Command) Read(p []byte) (n int, err error) {
-	return cmd.Stdin.Read(p)
-}
-
 func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
-	if cmd.PipelineCommand != nil {
-		cmd.pipelineExec()
-	} else {
-		cmd.simpleExec()
+	cmd.TTY = os.Getenv("TTY")
+	cmd.EUID = os.Geteuid()
+	cwd, err := os.Getwd()
+	if err != nil {
+		log.Printf("Error getting current working directory: %v", err)
 	}
-	cmd.EndTime = time.Now()
-	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+	cmd.CWD = cwd
+
+	if cmd.SimpleCommand != nil {
+		cmd.simpleExec()
+	} else if cmd.PipelineCommand != nil {
+		cmd.pipelineExec()
+	}
+	// Add code to handle other command types (ForLoop, IfCondition, CaseStatement) if needed
+
+	// Log the command execution details
+	historyManager, err := NewHistoryManager("")
+	if err != nil {
+		log.Printf("Failed to create history manager: %v", err)
+	} else {
+		err = historyManager.Insert(cmd, 0) // Replace 0 with the actual session ID
+		if err != nil {
+			log.Printf("Failed to insert command into history: %v", err)
+		}
+	}
 }
 
+// Update simple execution to handle command structures
 func (cmd *Command) simpleExec() {
-	executable, err := exec.LookPath(cmd.SimpleCommand.Command)
-	if err != nil {
-		log.Printf("Command not found: %s", cmd.SimpleCommand.Command)
+	if cmd.SimpleCommand == nil {
 		return
 	}
-
-	args := append(cmd.SimpleCommand.Options, cmd.SimpleCommand.Args...)
+	executable, err := exec.LookPath(cmd.SimpleCommand.Items[0].Value)
+	if err != nil {
+		log.Printf("Command not found: %s", cmd.SimpleCommand.Items[0].Value)
+		return
+	}
+	args := make([]string, len(cmd.SimpleCommand.Items)-1)
+	for i, item := range cmd.SimpleCommand.Items[1:] {
+		args[i] = item.Value
+	}
 	process := exec.Command(executable, args...)
 	setupRedirection(process, cmd)
 
 	if cmd.Background {
 		err = process.Start()
 		if err != nil {
-			log.Printf("Error executing %s in background: %v", cmd.SimpleCommand.Command, err)
+			log.Printf("Error executing %s in background: %v", executable, err)
 			return
 		}
-		log.Printf("Started %s [PID: %d] in background", cmd.SimpleCommand.Command, process.Process.Pid)
+		log.Printf("Started %s [PID: %d] in background", executable, process.Process.Pid)
 	} else {
 		err = process.Run()
 		if err != nil {
-			log.Printf("Error executing %s: %v", cmd.SimpleCommand.Command, err)
+			log.Printf("Error executing %s: %v", executable, err)
 		}
 	}
+	cmd.EndTime = time.Now()
+	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 }
 
 func setupRedirection(process *exec.Cmd, cmd *Command) {
@@ -115,14 +137,17 @@ func setupRedirection(process *exec.Cmd, cmd *Command) {
 
 func (cmd *Command) pipelineExec() {
 	var commands []*exec.Cmd
-	for _, shellCommand := range cmd.PipelineCommand.PipeCommands {
-		executable, err := exec.LookPath(shellCommand.SimpleCommand.Command)
+	for _, simpleCommand := range cmd.PipelineCommand.Commands {
+		executable, err := exec.LookPath(simpleCommand.Items[0].Value)
 		if err != nil {
-			log.Printf("Command not found: %s", shellCommand.SimpleCommand.Command)
+			log.Printf("Command not found: %s", simpleCommand.Items[0].Value)
 			return
 		}
 
-		args := append(shellCommand.SimpleCommand.Options, shellCommand.SimpleCommand.Args...)
+		args := make([]string, len(simpleCommand.Items)-1)
+		for i, item := range simpleCommand.Items[1:] {
+			args[i] = item.Value
+		}
 		command := exec.Command(executable, args...)
 		commands = append(commands, command)
 	}

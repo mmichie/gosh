@@ -13,8 +13,27 @@ func TestParseValidInputs(t *testing.T) {
 		{"ls -l", false},
 		{"echo 'hello world'", false},
 		{"cat myfile.txt", false},
-		{"rm -rf /", false}, // Be cautious with commands like these in real scenarios.
+		{"rm -rf /", false},
 		{"grep -i 'pattern' file.txt", false},
+		{"cd /path/to/directory", false},
+		{"pwd", false},
+		{"mkdir new_directory", false},
+		{"touch new_file.txt", false},
+		{"cp file1.txt file2.txt", false},
+		{"mv old_name.txt new_name.txt", false},
+		{"find . -name '*.txt'", false},
+		{"sed 's/old/new/g' file.txt", false},
+		{"awk '{print $1}' file.txt", false},
+		{"sort file.txt", false},
+		{"uniq -c file.txt", false},
+		{"head -n 10 file.txt", false},
+		{"tail -f /var/log/syslog", false},
+		{"tar -czvf archive.tar.gz directory/", false},
+		{"gzip file.txt", false},
+		{"ping google.com", false},
+		{"nslookup example.com", false},
+		{"ssh user@remote.host", false},
+		{"scp file.txt user@remote.host:/path/", false},
 	}
 
 	for _, tc := range testCases {
@@ -35,6 +54,17 @@ func TestParseInvalidInputs(t *testing.T) {
 		{"echo >", true},
 		{"cat", true},
 		{"| grep", true},
+		{"cp file1.txt", true},
+		{"mv old_name.txt", true},
+		{"find .", true},
+		{"sed 's/old/new/g'", true},
+		{"awk '{print $1}'", true},
+		{"head -n", true},
+		{"tail -f", true},
+		{"tar -czvf", true},
+		{"gzip", true},
+		{"ssh", true},
+		{"scp file.txt", true},
 	}
 
 	for _, tc := range testCases {

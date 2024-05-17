@@ -53,7 +53,13 @@ func NewHistoryManager(dbPath string) (*HistoryManager, error) {
 func (h *HistoryManager) Insert(cmd *Command, sessionID int) error {
 	insertSQL := `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, args, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	_, err := h.db.Exec(insertSQL, sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), cmd.SimpleCommand.Command, strings.Join(cmd.SimpleCommand.Args, " "), cmd.ReturnCode)
+	command := cmd.SimpleCommand.Items[0].Value
+	args := make([]string, len(cmd.SimpleCommand.Items)-1)
+	for i, item := range cmd.SimpleCommand.Items[1:] {
+		args[i] = item.Value
+	}
+
+	_, err := h.db.Exec(insertSQL, sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), command, strings.Join(args, " "), cmd.ReturnCode)
 	return err
 }
 
