@@ -9,13 +9,13 @@ import (
 )
 
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{"Path", `/?[\w./-]+`},
-	{"Option", `-\w+`},
-	{"String", `"(\\\\"|[^"])*"`},
-	{"SingleQuotedString", `'(\\\\'|[^'])*'`},
-	{"Operator", `[<>|&;]+`},
-	{"Whitespace", `\s+`},
+	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
+	{Name: "Path", Pattern: `/?[\w./-]+`},
+	{Name: "Option", Pattern: `-\w+`},
+	{Name: "String", Pattern: `"(\\\\"|[^"])*"`},
+	{Name: "SingleQuotedString", Pattern: `'(\\\\'|[^'])*'`},
+	{Name: "Operator", Pattern: `[<>|&;]+`},
+	{Name: "Whitespace", Pattern: `\s+`},
 })
 
 type SimpleCommandElement struct {
