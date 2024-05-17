@@ -1,11 +1,11 @@
-package gosh
+package parser
 
 import (
 	"testing"
 )
 
 // Test parsing of valid command inputs.
-func TestNewCommandValidInputs(t *testing.T) {
+func TestParseValidInputs(t *testing.T) {
 	testCases := []struct {
 		input   string
 		wantErr bool
@@ -18,15 +18,15 @@ func TestNewCommandValidInputs(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		_, err := NewCommand(tc.input)
+		_, err := Parse(tc.input)
 		if (err != nil) != tc.wantErr {
-			t.Errorf("NewCommand(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
+			t.Errorf("Parse(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
 		}
 	}
 }
 
 // Test parsing of invalid command inputs.
-func TestNewCommandInvalidInputs(t *testing.T) {
+func TestParseInvalidInputs(t *testing.T) {
 	testCases := []struct {
 		input   string
 		wantErr bool
@@ -38,9 +38,9 @@ func TestNewCommandInvalidInputs(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		_, err := NewCommand(tc.input)
+		_, err := Parse(tc.input)
 		if (err != nil) != tc.wantErr {
-			t.Errorf("NewCommand(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
+			t.Errorf("Parse(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
 		}
 	}
 }

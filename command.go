@@ -1,52 +1,14 @@
-// command.go
 package gosh
 
 import (
-	"fmt"
 	"io"
 	"log"
 	"os"
 	"os/exec"
 	"time"
 
-	"github.com/alecthomas/participle/v2"
-	"github.com/alecthomas/participle/v2/lexer"
+	"gosh/parser"
 )
-
-var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{"Path", `/?[\w./-]+`},
-	{"Option", `-\w+`},
-	{"String", `"(\\\\"|[^"])*"`},
-	{"SingleQuotedString", `'(\\\\'|[^'])*'`},
-	{"Operator", `[<>|&;]+`},
-	{"Whitespace", `\s+`},
-})
-
-type SimpleCommandElement struct {
-	Word string `parser:"@Ident | @Path | @Option | @String"`
-}
-
-type SimpleCommand struct {
-	Command  string                  `parser:"@Ident"`
-	Options  []string                `parser:"(@Whitespace @Option)*"`
-	Args     []string                `parser:"(@Whitespace (@Ident | @Path | @String))*"`
-	Elements []*SimpleCommandElement `parser:"@@*"`
-}
-
-type ShellCommand struct {
-	SimpleCommand *SimpleCommand `parser:"@@"`
-}
-
-type PipelineCommand struct {
-	Bang         bool            `parser:"@'!'?"`
-	Timespec     *Timespec       `parser:"@@?"`
-	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
-}
-
-type Timespec struct {
-	Opt string `parser:"'time' @Ident?"`
-}
 
 type Redirection struct {
 	Operator       string `parser:"@Operator"`
@@ -55,34 +17,26 @@ type Redirection struct {
 }
 
 type Command struct {
-	SimpleCommand   *SimpleCommand   `parser:"@@"`
-	PipelineCommand *PipelineCommand `parser:"| @@"`
-	Redirections    []*Redirection   `parser:"@@*"`
-	Background      bool             `parser:"@'&'"`
-	Stdin           io.Reader
-	Stdout          io.Writer
-	StartTime       time.Time
-	EndTime         time.Time
-	Duration        time.Duration
-	TTY             string
-	EUID            int
-	CWD             string
-	ReturnCode      int
+	*parser.Command
+	Redirections []*Redirection `parser:"@@*"`
+	Background   bool           `parser:"@'&'"`
+	Stdin        io.Reader
+	Stdout       io.Writer
+	StartTime    time.Time
+	EndTime      time.Time
+	Duration     time.Duration
+	TTY          string
+	EUID         int
+	CWD          string
+	ReturnCode   int
 }
 
-var parser = participle.MustBuild[Command](
-	participle.Lexer(shellLexer),
-	participle.Unquote(),
-)
-
 func NewCommand(input string) (*Command, error) {
-	command, err := parser.ParseString("", input)
+	parsedCmd, err := parser.Parse(input)
 	if err != nil {
-		log.Printf("Failed to parse command string: %s, error: %v", input, err)
-		return nil, fmt.Errorf("parse error: %v", err)
+		return nil, err
 	}
-	log.Printf("Parsed command: %+v", command)
-	return command, nil
+	return &Command{Command: parsedCmd}, nil
 }
 
 func (cmd *Command) Read(p []byte) (n int, err error) {
