@@ -1,3 +1,4 @@
+// command.go
 package gosh
 
 import (
@@ -12,32 +13,25 @@ import (
 	"github.com/alecthomas/participle/v2/lexer"
 )
 
-// Redefining the lexer with an 'Operator' token included.
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{"Ident", `[a-zA-Z_][a-zA-Z0-9_]*`},
 	{"Path", `/?[\w./-]+`},
 	{"Option", `-\w+`},
 	{"String", `"(\\\\"|[^"])*"`},
 	{"SingleQuotedString", `'(\\\\'|[^'])*'`},
-	{"Operator", `[<>|&;]+`}, // Adding Operator which includes common shell operators
-	{"Pipe", `\\|`},
-	{"Ampersand", `&`},
-	{"Semicolon", `;`},
-	{"GreaterThan", `>`},
-	{"LessThan", `<`},
-	{"DoubleGreaterThan", `>>`},
-	{"DoubleLessThan", `<<`},
-	{"Number", `\d+`},
+	{"Operator", `[<>|&;]+`},
 	{"Whitespace", `\s+`},
 })
 
 type SimpleCommandElement struct {
-	Word string `parser:"@Ident"`
+	Word string `parser:"@Ident | @Path | @Option | @String"`
 }
 
 type SimpleCommand struct {
-	Command string   `parser:"@Ident"`
-	Args    []string `parser:"(@Whitespace @Ident)*"`
+	Command  string                  `parser:"@Ident"`
+	Options  []string                `parser:"(@Whitespace @Option)*"`
+	Args     []string                `parser:"(@Whitespace (@Ident | @Path | @String))*"`
+	Elements []*SimpleCommandElement `parser:"@@*"`
 }
 
 type ShellCommand struct {
@@ -54,11 +48,17 @@ type Timespec struct {
 	Opt string `parser:"'time' @Ident?"`
 }
 
+type Redirection struct {
+	Operator       string `parser:"@Operator"`
+	Word           string `parser:"@Ident|@String"`
+	FileDescriptor int
+}
+
 type Command struct {
 	SimpleCommand   *SimpleCommand   `parser:"@@"`
 	PipelineCommand *PipelineCommand `parser:"| @@"`
 	Redirections    []*Redirection   `parser:"@@*"`
-	Background      bool             `parser:"@'&'?"`
+	Background      bool             `parser:"@'&'"`
 	Stdin           io.Reader
 	Stdout          io.Writer
 	StartTime       time.Time
@@ -70,55 +70,11 @@ type Command struct {
 	ReturnCode      int
 }
 
-type SimpleCommand struct {
-	Elements []*SimpleCommandElement `parser:"@@*"`
-}
-
-type SimpleCommandElement struct {
-	Word           string       `parser:"@Path|@Option|@Ident|@String"`
-	AssignmentWord string       `parser:"@Ident '='"`
-	Redirection    *Redirection `parser:"@@"`
-}
-
-type ShellCommand struct {
-	SimpleCommand *SimpleCommand `parser:"@@"`
-}
-
-type PipelineCommand struct {
-	Bang         bool            `parser:"@'!'?"`
-	Timespec     *Timespec       `parser:"@@?"`
-	PipeCommands []*ShellCommand `parser:"@@ ( '|' @@ )*"`
-}
-
-type Redirection struct {
-	Operator       string `parser:"@Operator"`
-	Word           string `parser:"@Ident|@String"`
-	FileDescriptor int
-}
-
-type Timespec struct {
-	Opt string `parser:"'time' @Ident?"`
-}
-
 var parser = participle.MustBuild[Command](
-	participle.Lexer(lexer.MustSimple([]lexer.SimpleRule{
-		{Name: "Ident", Pattern: `[a-zA-Z0-9_\-\.\/]+`},
-		{Name: "String", Pattern: `"(\\"|[^"])*"`},
-		{Name: "SingleQuotedString", Pattern: `'(\\"|[^'])*'`},
-		{Name: "Whitespace", Pattern: `\s+`},
-		{Name: "Pipe", Pattern: `\|`},
-		{Name: "Ampersand", Pattern: `&`},
-		{Name: "Semicolon", Pattern: `;`},
-		{Name: "GreaterThan", Pattern: `>`},
-		{Name: "LessThan", Pattern: `<`},
-		{Name: "DoubleGreaterThan", Pattern: `>>`},
-		{Name: "DoubleLessThan", Pattern: `<<`},
-		{Name: "Number", Pattern: `\d+`},
-		{Name: "Operator", Pattern: `[<>|&;]`},
-	})),
+	participle.Lexer(shellLexer),
+	participle.Unquote(),
 )
 
-// NewCommand parses the input command string and returns a Command struct instance.
 func NewCommand(input string) (*Command, error) {
 	command, err := parser.ParseString("", input)
 	if err != nil {
@@ -151,7 +107,8 @@ func (cmd *Command) simpleExec() {
 		return
 	}
 
-	process := exec.Command(executable, cmd.SimpleCommand.Args...)
+	args := append(cmd.SimpleCommand.Options, cmd.SimpleCommand.Args...)
+	process := exec.Command(executable, args...)
 	setupRedirection(process, cmd)
 
 	if cmd.Background {
@@ -211,7 +168,8 @@ func (cmd *Command) pipelineExec() {
 			return
 		}
 
-		command := exec.Command(executable, shellCommand.SimpleCommand.Args...)
+		args := append(shellCommand.SimpleCommand.Options, shellCommand.SimpleCommand.Args...)
+		command := exec.Command(executable, args...)
 		commands = append(commands, command)
 	}
 
