@@ -12,18 +12,18 @@ import (
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
 	{Name: "Word", Pattern: `\S+`},
-	{Name: "String", Pattern: `"(\\\\"|[^"])*"`},
-	{Name: "Operator", Pattern: `[<>|&;]+`},
+	{Name: "String", Pattern: `"(\\"|[^"])*"`},
+	{Name: "Operator", Pattern: `[\<\>|&;]+`},
 	{Name: "Whitespace", Pattern: `\s+`},
 })
 
 // Types for various parts of the shell grammar.
 type Word struct {
-	Value string `parser:"@Word"`
+	Value string `parser:"@(Ident|Word|String)"`
 }
 
 type Command struct {
-	SimpleCommand   *SimpleCommand   `parser:"@@?"`
+	SimpleCommand   *SimpleCommand   `parser:"@@"`
 	PipelineCommand *PipelineCommand `parser:"| @@"`
 	ForLoop         *ForLoop         `parser:"| @@"`
 	IfCondition     *IfCondition     `parser:"| @@"`
@@ -64,14 +64,13 @@ type CommandList struct {
 
 var parser = participle.MustBuild[Command](
 	participle.Lexer(shellLexer),
-	participle.Unquote(),
+	participle.Unquote("String"),
 	participle.Elide("Whitespace"),
 )
 
 // Parsing function to handle complex command structures.
 func Parse(input string) (*Command, error) {
 	log.Printf("Parsing input: %s", input)
-	command := &Command{}
 	command, err := parser.ParseString("", input)
 	if err != nil {
 		log.Printf("Failed to parse command string: %s, error: %v", input, err)
