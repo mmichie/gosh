@@ -83,37 +83,50 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		}
 		simpleCmd = expandedSimpleCmd.Pipelines[0].Commands[0]
 
-		cmdName, args, redirectType, filename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
 
 		// Expand wildcards in arguments
 		expandedArgs := ExpandWildcards(args)
 
 		if builtinCmd, ok := builtins[cmdName]; ok {
 			log.Println("Executing builtin command")
-			builtinCmd(cmd)
+			cmd.executeBuiltin(builtinCmd, expandedArgs, inputRedirectType, inputFilename, outputRedirectType, outputFilename)
 			return
 		}
 
 		execCmd := exec.Command(cmdName, expandedArgs...)
 		cmds = append(cmds, execCmd)
+
 		if i == 0 {
-			execCmd.Stdin = cmd.Stdin
+			if inputRedirectType == "<" {
+				inputFile, err := os.Open(inputFilename)
+				if err != nil {
+					log.Printf("Error opening input file: %v", err)
+					fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
+					cmd.ReturnCode = 1
+					return
+				}
+				defer inputFile.Close()
+				execCmd.Stdin = inputFile
+			} else {
+				execCmd.Stdin = cmd.Stdin
+			}
 		} else {
 			execCmd.Stdin = prevOut
 		}
 
 		if i == len(pipeline.Commands)-1 {
-			if redirectType != "" {
+			if outputRedirectType != "" {
 				var file *os.File
 				var err error
 
-				switch redirectType {
+				switch outputRedirectType {
 				case ">":
-					file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+					file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 				case ">>":
-					file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+					file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 				default:
-					err = fmt.Errorf("unknown redirection type: %s", redirectType)
+					err = fmt.Errorf("unknown redirection type: %s", outputRedirectType)
 				}
 
 				if err != nil {
@@ -164,4 +177,51 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
 	}
 	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
+}
+
+func (cmd *Command) executeBuiltin(builtinCmd func(*Command), args []string, inputRedirectType, inputFilename, outputRedirectType, outputFilename string) {
+	oldStdin := cmd.Stdin
+	oldStdout := cmd.Stdout
+	defer func() {
+		cmd.Stdin = oldStdin
+		cmd.Stdout = oldStdout
+	}()
+
+	if inputRedirectType == "<" {
+		inputFile, err := os.Open(inputFilename)
+		if err != nil {
+			log.Printf("Error opening input file: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
+			cmd.ReturnCode = 1
+			return
+		}
+		defer inputFile.Close()
+		cmd.Stdin = inputFile
+	}
+
+	if outputRedirectType != "" {
+		var file *os.File
+		var err error
+
+		switch outputRedirectType {
+		case ">":
+			file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		case ">>":
+			file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		default:
+			err = fmt.Errorf("unknown redirection type: %s", outputRedirectType)
+		}
+
+		if err != nil {
+			log.Printf("Error opening output file: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
+			cmd.ReturnCode = 1
+			return
+		}
+		defer file.Close()
+		cmd.Stdout = file
+	}
+
+	cmd.Pipelines[0].Commands[0].Parts = append([]string{cmd.Pipelines[0].Commands[0].Parts[0]}, args...)
+	builtinCmd(cmd)
 }

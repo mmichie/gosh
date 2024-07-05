@@ -8,7 +8,6 @@ import (
 	"gosh/parser"
 )
 
-// Define builtins as a variable without initializing it immediately.
 var builtins map[string]func(cmd *Command)
 
 func init() {
@@ -18,13 +17,13 @@ func init() {
 	builtins["exit"] = exitShell
 	builtins["echo"] = echo
 	builtins["help"] = help
+	builtins["history"] = history
 	builtins["env"] = env
 	builtins["export"] = export
 	builtins["alias"] = alias
 	builtins["unalias"] = unalias
 }
 
-// help displays help for built-in commands.
 func help(cmd *Command) {
 	fmt.Println("Built-in commands:")
 	for name := range builtins {
@@ -32,13 +31,12 @@ func help(cmd *Command) {
 	}
 }
 
-// cd changes the current working directory.
 func cd(cmd *Command) {
 	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 {
 		fmt.Println("cd: no arguments")
 		return
 	}
-	_, args, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
+	_, args, _, _, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
 	var dir string
 	if len(args) == 0 {
 		dir = os.Getenv("HOME")
@@ -50,7 +48,6 @@ func cd(cmd *Command) {
 	}
 }
 
-// pwd prints the current working directory.
 func pwd(cmd *Command) {
 	if dir, err := os.Getwd(); err == nil {
 		fmt.Println(dir)
@@ -59,7 +56,6 @@ func pwd(cmd *Command) {
 	}
 }
 
-// exitShell exits the shell.
 func exitShell(cmd *Command) {
 	os.Exit(0)
 }
@@ -68,11 +64,11 @@ func echo(cmd *Command) {
 	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 {
 		return
 	}
-	_, args, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
-	fmt.Println(strings.Join(args, " "))
+	_, args, _, _, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
+	output := strings.Join(args, " ")
+	fmt.Fprintln(cmd.Stdout, output)
 }
 
-// history dumps the command history.
 func history(cmd *Command) {
 	historyManager, err := NewHistoryManager("")
 	if err != nil {

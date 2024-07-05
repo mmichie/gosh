@@ -3,7 +3,6 @@ package parser
 import (
 	"fmt"
 	"log"
-	"os"
 	"strings"
 
 	"github.com/alecthomas/participle/v2"
@@ -11,11 +10,10 @@ import (
 )
 
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{Name: "EnvVar", Pattern: `\$[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Word", Pattern: `[^\s|><$]+`},
-	{Name: "Pipe", Pattern: `\|`},
-	{Name: "Redirect", Pattern: `>>|>`},
 	{Name: "Whitespace", Pattern: `\s+`},
+	{Name: "Pipe", Pattern: `\|`},
+	{Name: "Redirect", Pattern: `>>|>|<`},
+	{Name: "Word", Pattern: `[^\s|><]+`},
 })
 
 type Command struct {
@@ -27,7 +25,7 @@ type Pipeline struct {
 }
 
 type SimpleCommand struct {
-	Parts []string `parser:"@(EnvVar|Word)+ ( @Redirect @Word )?"`
+	Parts []string `parser:"@Word+ ( @Redirect @Word )*"`
 }
 
 var parser = participle.MustBuild[Command](
@@ -46,28 +44,37 @@ func Parse(input string) (*Command, error) {
 	return command, nil
 }
 
-func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string) {
+func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, string, string) {
 	if len(cmd.Parts) == 0 {
-		return "", nil, "", ""
+		return "", nil, "", "", "", ""
 	}
 
 	command := cmd.Parts[0]
 	args := []string{}
-	redirectType := ""
-	filename := ""
+	inputRedirectType := ""
+	inputFilename := ""
+	outputRedirectType := ""
+	outputFilename := ""
 
 	for i := 1; i < len(cmd.Parts); i++ {
-		if cmd.Parts[i] == ">" || cmd.Parts[i] == ">>" {
-			redirectType = cmd.Parts[i]
+		if cmd.Parts[i] == "<" {
+			inputRedirectType = cmd.Parts[i]
 			if i+1 < len(cmd.Parts) {
-				filename = cmd.Parts[i+1]
+				inputFilename = cmd.Parts[i+1]
 			}
-			break
+			i++ // Skip the next part as it's the input filename
+		} else if cmd.Parts[i] == ">" || cmd.Parts[i] == ">>" {
+			outputRedirectType = cmd.Parts[i]
+			if i+1 < len(cmd.Parts) {
+				outputFilename = cmd.Parts[i+1]
+			}
+			i++ // Skip the next part as it's the output filename
+		} else {
+			args = append(args, cmd.Parts[i])
 		}
-		args = append(args, cmd.Parts[i])
 	}
 
-	return command, args, redirectType, filename
+	return command, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename
 }
 
 func FormatCommand(cmd *Command) string {
@@ -84,11 +91,4 @@ func FormatCommand(cmd *Command) string {
 		}
 	}
 	return result.String()
-}
-
-func expandEnvVars(s string) string {
-	if strings.HasPrefix(s, "$") {
-		return os.Getenv(s[1:])
-	}
-	return s
 }
