@@ -34,13 +34,11 @@ var parser = participle.MustBuild[Command](
 )
 
 func Parse(input string) (*Command, error) {
-	log.Printf("Parsing input: %s", input)
 	command, err := parser.ParseString("", input)
 	if err != nil {
 		log.Printf("Failed to parse command string: %s, error: %v", input, err)
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
-	log.Printf("Parsed command: %+v", command)
 	return command, nil
 }
 

@@ -74,7 +74,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
 
 		if builtinCmd, ok := builtins[cmdName]; ok {
-			log.Println("Executing builtin command")
 			builtinCmd(cmd)
 			return
 		}
@@ -174,6 +173,4 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 
 		cmd.JobManager.RemoveJob(job.ID)
 	}
-
-	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
 }
