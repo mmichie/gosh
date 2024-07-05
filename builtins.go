@@ -24,6 +24,15 @@ func init() {
 	builtins["unalias"] = unalias
 }
 
+// Builtins returns a copy of the builtins map
+func Builtins() map[string]func(cmd *Command) {
+	copy := make(map[string]func(cmd *Command))
+	for k, v := range builtins {
+		copy[k] = v
+	}
+	return copy
+}
+
 func help(cmd *Command) {
 	fmt.Println("Built-in commands:")
 	for name := range builtins {

@@ -21,11 +21,15 @@ func main() {
 
 	fmt.Println("Welcome to gosh Shell")
 
+	completer := gosh.NewCompleter(gosh.Builtins())
+
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:          "> ",
-		HistoryFile:     "/tmp/gosh_readline_history",
-		InterruptPrompt: "^C",
-		EOFPrompt:       "exit",
+		Prompt:            "> ",
+		HistoryFile:       "/tmp/gosh_readline_history",
+		InterruptPrompt:   "^C",
+		EOFPrompt:         "exit",
+		AutoComplete:      completer,
+		HistorySearchFold: true,
 	})
 	if err != nil {
 		panic(err)
@@ -36,6 +40,8 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to create history manager: %v", err)
 	}
+
+	fmt.Println("Tab completion is being initialized in the background. It will be fully functional shortly.")
 
 	for {
 		line, err := rl.Readline()
