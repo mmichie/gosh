@@ -20,7 +20,8 @@ func init() {
 	builtins["help"] = help
 	builtins["env"] = env
 	builtins["export"] = export
-
+	builtins["alias"] = alias
+	builtins["unalias"] = unalias
 }
 
 // help displays help for built-in commands.
@@ -109,4 +110,41 @@ func export(cmd *Command) {
 
 	name, value := parts[0], parts[1]
 	os.Setenv(name, value)
+}
+
+func alias(cmd *Command) {
+	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 {
+		// List all aliases
+		for _, a := range ListAliases() {
+			fmt.Println(a)
+		}
+		return
+	}
+
+	parts := cmd.Pipelines[0].Commands[0].Parts
+	if len(parts) < 2 {
+		fmt.Fprintln(cmd.Stderr, "Usage: alias name='command'")
+		return
+	}
+
+	aliasDeclaration := strings.Join(parts[1:], " ")
+	nameParts := strings.SplitN(aliasDeclaration, "=", 2)
+	if len(nameParts) != 2 {
+		fmt.Fprintln(cmd.Stderr, "Invalid alias syntax. Usage: alias name='command'")
+		return
+	}
+
+	name := strings.TrimSpace(nameParts[0])
+	command := strings.Trim(strings.TrimSpace(nameParts[1]), "'\"")
+	SetAlias(name, command)
+}
+
+func unalias(cmd *Command) {
+	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 || len(cmd.Pipelines[0].Commands[0].Parts) < 2 {
+		fmt.Fprintln(cmd.Stderr, "Usage: unalias name")
+		return
+	}
+
+	name := cmd.Pipelines[0].Commands[0].Parts[1]
+	RemoveAlias(name)
 }

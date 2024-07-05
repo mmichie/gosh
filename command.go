@@ -72,6 +72,17 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 	var cmds []*exec.Cmd
 
 	for i, simpleCmd := range pipeline.Commands {
+		// Expand aliases
+		expandedCmd := ExpandAlias(strings.Join(simpleCmd.Parts, " "))
+		expandedSimpleCmd, err := parser.Parse(expandedCmd)
+		if err != nil {
+			log.Printf("Error parsing expanded command: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error parsing expanded command: %v\n", err)
+			cmd.ReturnCode = 1
+			return
+		}
+		simpleCmd = expandedSimpleCmd.Pipelines[0].Commands[0]
+
 		cmdName, args, redirectType, filename := parser.ProcessCommand(simpleCmd)
 
 		if builtinCmd, ok := builtins[cmdName]; ok {
@@ -151,15 +162,4 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
 	}
 	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
-}
-
-func isEnvVarAssignment(s string) bool {
-	return strings.Contains(s, "=")
-}
-
-func setEnvVar(s string) {
-	parts := strings.SplitN(s, "=", 2)
-	if len(parts) == 2 {
-		os.Setenv(parts[0], parts[1])
-	}
 }
