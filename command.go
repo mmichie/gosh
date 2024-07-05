@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
 	"gosh/parser"
@@ -55,12 +56,11 @@ func (cmd *Command) Run() {
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 
-	// Log the command execution details
 	historyManager, err := NewHistoryManager("")
 	if err != nil {
 		log.Printf("Failed to create history manager: %v", err)
 	} else {
-		err = historyManager.Insert(cmd, 0) // Replace 0 with the actual session ID
+		err = historyManager.Insert(cmd, 0)
 		if err != nil {
 			log.Printf("Failed to insert command into history: %v", err)
 		}
@@ -74,7 +74,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 	for i, simpleCmd := range pipeline.Commands {
 		cmdName, args, redirectType, filename := parser.ProcessCommand(simpleCmd)
 
-		// Check for built-in commands
 		if builtinCmd, ok := builtins[cmdName]; ok {
 			log.Println("Executing builtin command")
 			builtinCmd(cmd)
@@ -129,7 +128,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		execCmd.Stderr = cmd.Stderr
 	}
 
-	// Start all commands
 	for _, c := range cmds {
 		err := c.Start()
 		if err != nil {
@@ -140,7 +138,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		}
 	}
 
-	// Wait for all commands to complete
 	for _, c := range cmds {
 		err := c.Wait()
 		if err != nil {
@@ -150,6 +147,19 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		}
 	}
 
-	cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
+	if len(cmds) > 0 {
+		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
+	}
 	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
+}
+
+func isEnvVarAssignment(s string) bool {
+	return strings.Contains(s, "=")
+}
+
+func setEnvVar(s string) {
+	parts := strings.SplitN(s, "=", 2)
+	if len(parts) == 2 {
+		os.Setenv(parts[0], parts[1])
+	}
 }

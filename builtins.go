@@ -18,7 +18,9 @@ func init() {
 	builtins["exit"] = exitShell
 	builtins["echo"] = echo
 	builtins["help"] = help
-	builtins["history"] = history
+	builtins["env"] = env
+	builtins["export"] = export
+
 }
 
 // help displays help for built-in commands.
@@ -84,4 +86,27 @@ func history(cmd *Command) {
 	for _, record := range records {
 		fmt.Println(record)
 	}
+}
+
+func env(cmd *Command) {
+	for _, env := range os.Environ() {
+		fmt.Println(env)
+	}
+}
+
+func export(cmd *Command) {
+	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 || len(cmd.Pipelines[0].Commands[0].Parts) < 2 {
+		fmt.Fprintln(cmd.Stderr, "Usage: export NAME=VALUE")
+		return
+	}
+
+	assignment := cmd.Pipelines[0].Commands[0].Parts[1]
+	parts := strings.SplitN(assignment, "=", 2)
+	if len(parts) != 2 {
+		fmt.Fprintln(cmd.Stderr, "Invalid export syntax. Usage: export NAME=VALUE")
+		return
+	}
+
+	name, value := parts[0], parts[1]
+	os.Setenv(name, value)
 }
