@@ -1,14 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
 	"time"
 
 	"gosh"
+
+	"github.com/chzyer/readline"
 )
 
 func main() {
@@ -18,38 +20,64 @@ func main() {
 	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
 
 	fmt.Println("Welcome to gosh Shell")
-	fmt.Print("> ")
 
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		input := scanner.Text()
-		input = strings.TrimSpace(input)
+	rl, err := readline.NewEx(&readline.Config{
+		Prompt:          "> ",
+		HistoryFile:     "/tmp/gosh_readline_history",
+		InterruptPrompt: "^C",
+		EOFPrompt:       "exit",
+	})
+	if err != nil {
+		panic(err)
+	}
+	defer rl.Close()
 
-		if input == "exit" || input == "quit" {
+	historyManager, err := gosh.NewHistoryManager("")
+	if err != nil {
+		log.Printf("Failed to create history manager: %v", err)
+	}
+
+	for {
+		line, err := rl.Readline()
+		if err != nil {
+			if err == readline.ErrInterrupt {
+				continue
+			} else if err == io.EOF {
+				break
+			}
+			fmt.Println("Error reading input:", err)
+			continue
+		}
+
+		line = strings.TrimSpace(line)
+
+		if line == "exit" || line == "quit" {
 			fmt.Println("Exiting gosh Shell...")
 			break
 		}
 
-		if input == "" {
-			fmt.Print("> ")
+		if line == "" {
 			continue
 		}
 
-		command, err := gosh.NewCommand(input)
+		command, err := gosh.NewCommand(line)
 		if err != nil {
 			log.Printf("Error creating command: %v", err)
-			fmt.Print("> ")
 			continue
 		}
 
 		command.Stdin = os.Stdin
 		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
 		command.Run()
 
-		fmt.Print("> ")
-	}
+		if historyManager != nil {
+			err = historyManager.Insert(command, 0) // Replace 0 with actual session ID
+			if err != nil {
+				log.Printf("Failed to insert command into history: %v", err)
+			}
+		}
 
-	if err := scanner.Err(); err != nil {
-		log.Printf("Error reading input: %v", err)
+		rl.SaveHistory(line)
 	}
 }
