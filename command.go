@@ -71,34 +71,56 @@ func (cmd *Command) Run() {
 }
 
 func (cmd *Command) simpleExec() {
-	if cmd.SimpleCommand == nil || len(cmd.SimpleCommand.Items) == 0 {
+	if cmd.SimpleCommand == nil || len(cmd.SimpleCommand.Command) == 0 {
+		log.Println("Simple command is nil or has no command")
 		return
 	}
 
-	cmdName := cmd.SimpleCommand.Items[0].Value
+	cmdName := cmd.SimpleCommand.Command[0].Value
+	log.Printf("Executing command: %s", cmdName)
 
 	// Check for built-in commands
 	if builtinCmd, ok := builtins[cmdName]; ok {
+		log.Println("Executing builtin command")
 		builtinCmd(cmd)
 		return
 	}
 
 	// External command execution
-	cmdArgs := make([]string, len(cmd.SimpleCommand.Items)-1)
-	for i, item := range cmd.SimpleCommand.Items[1:] {
-		cmdArgs[i] = item.Value
+	cmdArgs := make([]string, 0)
+	for _, item := range cmd.SimpleCommand.Command[1:] {
+		cmdArgs = append(cmdArgs, item.Value)
 	}
+	log.Printf("Command arguments: %v", cmdArgs)
 
 	execCmd := exec.Command(cmdName, cmdArgs...)
 	execCmd.Stdin = cmd.Stdin
-	execCmd.Stdout = cmd.Stdout
 	execCmd.Stderr = cmd.Stderr
+
+	if cmd.SimpleCommand.Redirection != nil {
+		log.Printf("Redirection detected: %+v", cmd.SimpleCommand.Redirection)
+		file, err := os.OpenFile(cmd.SimpleCommand.Redirection.Filename.Value, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			log.Printf("Error opening output file: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
+			cmd.ReturnCode = 1
+			return
+		}
+		defer file.Close()
+		execCmd.Stdout = file
+		log.Println("Redirection set up successfully")
+	} else {
+		execCmd.Stdout = cmd.Stdout
+		log.Println("No redirection, using standard output")
+	}
 
 	err := execCmd.Run()
 	if err != nil {
-		fmt.Fprintf(cmd.Stderr, "%s: command not found\n", cmdName)
+		log.Printf("Command execution error: %v", err)
+		fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
 		cmd.ReturnCode = 1
 	} else {
+		log.Printf("Command executed successfully, exit code: %d", execCmd.ProcessState.ExitCode())
 		cmd.ReturnCode = execCmd.ProcessState.ExitCode()
 	}
 }

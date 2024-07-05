@@ -53,9 +53,9 @@ func NewHistoryManager(dbPath string) (*HistoryManager, error) {
 func (h *HistoryManager) Insert(cmd *Command, sessionID int) error {
 	insertSQL := `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, args, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	command := cmd.SimpleCommand.Items[0].Value
-	args := make([]string, len(cmd.SimpleCommand.Items)-1)
-	for i, item := range cmd.SimpleCommand.Items[1:] {
+	command := cmd.SimpleCommand.Command[0].Value
+	args := make([]string, len(cmd.SimpleCommand.Command)-1)
+	for i, item := range cmd.SimpleCommand.Command[1:] {
 		args[i] = item.Value
 	}
 

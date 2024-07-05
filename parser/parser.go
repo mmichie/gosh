@@ -11,9 +11,10 @@ import (
 // Lexer rules enhanced for additional elements.
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Ident", Pattern: `[a-zA-Z_][a-zA-Z0-9_]*`},
-	{Name: "Word", Pattern: `\S+`},
+	{Name: "Word", Pattern: `[^\s><|&;]+`},
 	{Name: "String", Pattern: `"(\\"|[^"])*"`},
-	{Name: "Operator", Pattern: `[\<\>|&;]+`},
+	{Name: "Redirect", Pattern: `[><]`},
+	{Name: "Pipe", Pattern: `\|`},
 	{Name: "Whitespace", Pattern: `\s+`},
 })
 
@@ -30,7 +31,13 @@ type Command struct {
 }
 
 type SimpleCommand struct {
-	Items []*Word `parser:"@@+"`
+	Command     []*Word      `parser:"@@+"`
+	Redirection *Redirection `parser:"@@?"`
+}
+
+type Redirection struct {
+	Type     string `parser:"@Redirect"`
+	Filename *Word  `parser:"@@"`
 }
 
 type PipelineCommand struct {
@@ -68,7 +75,7 @@ var parser = participle.MustBuild[Command](
 	participle.Elide("Whitespace"),
 )
 
-// Parsing function to handle complex command structures.
+// Parse function to handle complex command structures.
 func Parse(input string) (*Command, error) {
 	log.Printf("Parsing input: %s", input)
 	command, err := parser.ParseString("", input)
@@ -77,5 +84,9 @@ func Parse(input string) (*Command, error) {
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
 	log.Printf("Parsed command: %+v", command)
+	if command.SimpleCommand != nil {
+		log.Printf("Simple command: %+v", command.SimpleCommand.Command)
+		log.Printf("Simple command redirection: %+v", command.SimpleCommand.Redirection)
+	}
 	return command, nil
 }
