@@ -85,15 +85,17 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 
 		cmdName, args, redirectType, filename := parser.ProcessCommand(simpleCmd)
 
+		// Expand wildcards in arguments
+		expandedArgs := ExpandWildcards(args)
+
 		if builtinCmd, ok := builtins[cmdName]; ok {
 			log.Println("Executing builtin command")
 			builtinCmd(cmd)
 			return
 		}
 
-		execCmd := exec.Command(cmdName, args...)
+		execCmd := exec.Command(cmdName, expandedArgs...)
 		cmds = append(cmds, execCmd)
-
 		if i == 0 {
 			execCmd.Stdin = cmd.Stdin
 		} else {

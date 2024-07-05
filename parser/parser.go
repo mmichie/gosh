@@ -51,7 +51,7 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string) {
 		return "", nil, "", ""
 	}
 
-	command := expandEnvVars(cmd.Parts[0])
+	command := cmd.Parts[0]
 	args := []string{}
 	redirectType := ""
 	filename := ""
@@ -60,11 +60,11 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string) {
 		if cmd.Parts[i] == ">" || cmd.Parts[i] == ">>" {
 			redirectType = cmd.Parts[i]
 			if i+1 < len(cmd.Parts) {
-				filename = expandEnvVars(cmd.Parts[i+1])
+				filename = cmd.Parts[i+1]
 			}
 			break
 		}
-		args = append(args, expandEnvVars(cmd.Parts[i]))
+		args = append(args, cmd.Parts[i])
 	}
 
 	return command, args, redirectType, filename
