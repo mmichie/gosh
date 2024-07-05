@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"log"
+	"strings"
 
 	"github.com/alecthomas/participle/v2"
 	"github.com/alecthomas/participle/v2/lexer"
@@ -10,13 +11,23 @@ import (
 
 // Lexer rules enhanced for additional elements.
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
-	{Name: "Word", Pattern: `[^\s]+`},
+	{Name: "Word", Pattern: `[^\s|><]+`},
+	{Name: "Pipe", Pattern: `\|`},
+	{Name: "Redirect", Pattern: `>>|>`},
 	{Name: "Whitespace", Pattern: `\s+`},
 })
 
 // Types for various parts of the shell grammar.
 type Command struct {
-	Parts []string `parser:"@Word+"`
+	Pipelines []*Pipeline `parser:"@@+"`
+}
+
+type Pipeline struct {
+	Commands []*SimpleCommand `parser:"@@ ( '|' @@ )*"`
+}
+
+type SimpleCommand struct {
+	Parts []string `parser:"@Word+ ( @Redirect @Word )?"`
 }
 
 var parser = participle.MustBuild[Command](
@@ -37,7 +48,7 @@ func Parse(input string) (*Command, error) {
 }
 
 // ProcessCommand processes the parsed command and separates the command, arguments, and redirection.
-func ProcessCommand(cmd *Command) (string, []string, string, string) {
+func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string) {
 	if len(cmd.Parts) == 0 {
 		return "", nil, "", ""
 	}
@@ -59,4 +70,21 @@ func ProcessCommand(cmd *Command) (string, []string, string, string) {
 	}
 
 	return command, args, redirectType, filename
+}
+
+// FormatCommand formats a Command back into a string representation
+func FormatCommand(cmd *Command) string {
+	var result strings.Builder
+	for i, pipeline := range cmd.Pipelines {
+		if i > 0 {
+			result.WriteString(" | ")
+		}
+		for j, simpleCmd := range pipeline.Commands {
+			if j > 0 {
+				result.WriteString(" | ")
+			}
+			result.WriteString(strings.Join(simpleCmd.Parts, " "))
+		}
+	}
+	return result.String()
 }

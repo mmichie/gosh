@@ -31,7 +31,11 @@ func help(cmd *Command) {
 
 // cd changes the current working directory.
 func cd(cmd *Command) {
-	_, args, _, _ := parser.ProcessCommand(cmd.Command)
+	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 {
+		fmt.Println("cd: no arguments")
+		return
+	}
+	_, args, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
 	var dir string
 	if len(args) == 0 {
 		dir = os.Getenv("HOME")
@@ -58,7 +62,10 @@ func exitShell(cmd *Command) {
 }
 
 func echo(cmd *Command) {
-	_, args, _, _ := parser.ProcessCommand(cmd.Command)
+	if len(cmd.Pipelines) == 0 || len(cmd.Pipelines[0].Commands) == 0 {
+		return
+	}
+	_, args, _, _ := parser.ProcessCommand(cmd.Pipelines[0].Commands[0])
 	fmt.Println(strings.Join(args, " "))
 }
 

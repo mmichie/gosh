@@ -48,7 +48,9 @@ func (cmd *Command) Run() {
 	}
 	cmd.CWD = cwd
 
-	cmd.simpleExec()
+	for _, pipeline := range cmd.Pipelines {
+		cmd.executePipeline(pipeline)
+	}
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
@@ -65,59 +67,89 @@ func (cmd *Command) Run() {
 	}
 }
 
-func (cmd *Command) simpleExec() {
-	cmdName, args, redirectType, filename := parser.ProcessCommand(cmd.Command)
+func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
+	var prevOut io.ReadCloser = nil
+	var cmds []*exec.Cmd
 
-	log.Printf("Executing command: %s", cmdName)
-	log.Printf("Command arguments: %v", args)
-	log.Printf("Redirection: %s %s", redirectType, filename)
+	for i, simpleCmd := range pipeline.Commands {
+		cmdName, args, redirectType, filename := parser.ProcessCommand(simpleCmd)
 
-	// Check for built-in commands
-	if builtinCmd, ok := builtins[cmdName]; ok {
-		log.Println("Executing builtin command")
-		builtinCmd(cmd)
-		return
-	}
-
-	// External command execution
-	execCmd := exec.Command(cmdName, args...)
-	execCmd.Stdin = cmd.Stdin
-	execCmd.Stderr = cmd.Stderr
-
-	if redirectType != "" {
-		var file *os.File
-		var err error
-
-		switch redirectType {
-		case ">":
-			file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-		case ">>":
-			file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		default:
-			err = fmt.Errorf("unknown redirection type: %s", redirectType)
+		// Check for built-in commands
+		if builtinCmd, ok := builtins[cmdName]; ok {
+			log.Println("Executing builtin command")
+			builtinCmd(cmd)
+			return
 		}
 
+		execCmd := exec.Command(cmdName, args...)
+		cmds = append(cmds, execCmd)
+
+		if i == 0 {
+			execCmd.Stdin = cmd.Stdin
+		} else {
+			execCmd.Stdin = prevOut
+		}
+
+		if i == len(pipeline.Commands)-1 {
+			if redirectType != "" {
+				var file *os.File
+				var err error
+
+				switch redirectType {
+				case ">":
+					file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				case ">>":
+					file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+				default:
+					err = fmt.Errorf("unknown redirection type: %s", redirectType)
+				}
+
+				if err != nil {
+					log.Printf("Error opening output file: %v", err)
+					fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
+					cmd.ReturnCode = 1
+					return
+				}
+				defer file.Close()
+				execCmd.Stdout = file
+			} else {
+				execCmd.Stdout = cmd.Stdout
+			}
+		} else {
+			var err error
+			prevOut, err = execCmd.StdoutPipe()
+			if err != nil {
+				log.Printf("Error creating pipe: %v", err)
+				fmt.Fprintf(cmd.Stderr, "Error creating pipe: %v\n", err)
+				cmd.ReturnCode = 1
+				return
+			}
+		}
+
+		execCmd.Stderr = cmd.Stderr
+	}
+
+	// Start all commands
+	for _, c := range cmds {
+		err := c.Start()
 		if err != nil {
-			log.Printf("Error opening output file: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
+			log.Printf("Error starting command: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error starting command: %v\n", err)
 			cmd.ReturnCode = 1
 			return
 		}
-		defer file.Close()
-		execCmd.Stdout = file
-		log.Println("Redirection set up successfully")
-	} else {
-		execCmd.Stdout = cmd.Stdout
-		log.Println("No redirection, using standard output")
 	}
 
-	err := execCmd.Run()
-	if err != nil {
-		log.Printf("Command execution error: %v", err)
-		fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
-		cmd.ReturnCode = 1
-	} else {
-		log.Printf("Command executed successfully, exit code: %d", execCmd.ProcessState.ExitCode())
-		cmd.ReturnCode = execCmd.ProcessState.ExitCode()
+	// Wait for all commands to complete
+	for _, c := range cmds {
+		err := c.Wait()
+		if err != nil {
+			log.Printf("Command execution error: %v", err)
+			fmt.Fprintf(cmd.Stderr, "%s: %v\n", c.Path, err)
+			cmd.ReturnCode = 1
+		}
 	}
+
+	cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
+	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
 }
