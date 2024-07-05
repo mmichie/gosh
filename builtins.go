@@ -3,6 +3,7 @@ package gosh
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"gosh/parser"
@@ -22,6 +23,9 @@ func init() {
 	builtins["export"] = export
 	builtins["alias"] = alias
 	builtins["unalias"] = unalias
+	builtins["jobs"] = jobs
+	builtins["fg"] = fg
+	builtins["bg"] = bg
 }
 
 // Builtins returns a copy of the builtins map
@@ -152,4 +156,43 @@ func unalias(cmd *Command) {
 
 	name := cmd.Pipelines[0].Commands[0].Parts[1]
 	RemoveAlias(name)
+}
+
+func jobs(cmd *Command) {
+	jobList := cmd.JobManager.ListJobs()
+	for _, job := range jobList {
+		fmt.Printf("[%d] %s %s\n", job.ID, job.Status, job.Command)
+	}
+}
+
+func fg(cmd *Command) {
+	if len(cmd.Pipelines[0].Commands[0].Parts) < 2 {
+		fmt.Fprintln(cmd.Stderr, "Usage: fg <job_id>")
+		return
+	}
+	jobID, err := strconv.Atoi(cmd.Pipelines[0].Commands[0].Parts[1])
+	if err != nil {
+		fmt.Fprintln(cmd.Stderr, "Invalid job ID")
+		return
+	}
+	err = cmd.JobManager.ForegroundJob(jobID)
+	if err != nil {
+		fmt.Fprintln(cmd.Stderr, err)
+	}
+}
+
+func bg(cmd *Command) {
+	if len(cmd.Pipelines[0].Commands[0].Parts) < 2 {
+		fmt.Fprintln(cmd.Stderr, "Usage: bg <job_id>")
+		return
+	}
+	jobID, err := strconv.Atoi(cmd.Pipelines[0].Commands[0].Parts[1])
+	if err != nil {
+		fmt.Fprintln(cmd.Stderr, "Invalid job ID")
+		return
+	}
+	err = cmd.JobManager.BackgroundJob(jobID)
+	if err != nil {
+		fmt.Fprintln(cmd.Stderr, err)
+	}
 }

@@ -24,18 +24,20 @@ type Command struct {
 	EUID       int
 	CWD        string
 	ReturnCode int
+	JobManager *JobManager
 }
 
-func NewCommand(input string) (*Command, error) {
+func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	parsedCmd, err := parser.Parse(input)
 	if err != nil {
 		return nil, err
 	}
 	return &Command{
-		Command: parsedCmd,
-		Stdin:   os.Stdin,
-		Stdout:  os.Stdout,
-		Stderr:  os.Stderr,
+		Command:    parsedCmd,
+		Stdin:      os.Stdin,
+		Stdout:     os.Stdout,
+		Stderr:     os.Stderr,
+		JobManager: jobManager,
 	}, nil
 }
 
@@ -55,46 +57,29 @@ func (cmd *Command) Run() {
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
-
-	historyManager, err := NewHistoryManager("")
-	if err != nil {
-		log.Printf("Failed to create history manager: %v", err)
-	} else {
-		err = historyManager.Insert(cmd, 0)
-		if err != nil {
-			log.Printf("Failed to insert command into history: %v", err)
-		}
-	}
 }
 
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 	var prevOut io.ReadCloser = nil
 	var cmds []*exec.Cmd
 
+	lastCmd := pipeline.Commands[len(pipeline.Commands)-1]
+	isBackground := false
+	if len(lastCmd.Parts) > 0 && lastCmd.Parts[len(lastCmd.Parts)-1] == "&" {
+		isBackground = true
+		lastCmd.Parts = lastCmd.Parts[:len(lastCmd.Parts)-1]
+	}
+
 	for i, simpleCmd := range pipeline.Commands {
-		// Expand aliases
-		expandedCmd := ExpandAlias(strings.Join(simpleCmd.Parts, " "))
-		expandedSimpleCmd, err := parser.Parse(expandedCmd)
-		if err != nil {
-			log.Printf("Error parsing expanded command: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error parsing expanded command: %v\n", err)
-			cmd.ReturnCode = 1
-			return
-		}
-		simpleCmd = expandedSimpleCmd.Pipelines[0].Commands[0]
-
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
-
-		// Expand wildcards in arguments
-		expandedArgs := ExpandWildcards(args)
 
 		if builtinCmd, ok := builtins[cmdName]; ok {
 			log.Println("Executing builtin command")
-			cmd.executeBuiltin(builtinCmd, expandedArgs, inputRedirectType, inputFilename, outputRedirectType, outputFilename)
+			builtinCmd(cmd)
 			return
 		}
 
-		execCmd := exec.Command(cmdName, expandedArgs...)
+		execCmd := exec.Command(cmdName, args...)
 		cmds = append(cmds, execCmd)
 
 		if i == 0 {
@@ -154,74 +139,41 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		execCmd.Stderr = cmd.Stderr
 	}
 
-	for _, c := range cmds {
-		err := c.Start()
+	lastExecCmd := cmds[len(cmds)-1]
+
+	if isBackground {
+		err := lastExecCmd.Start()
 		if err != nil {
-			log.Printf("Error starting command: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error starting command: %v\n", err)
+			log.Printf("Error starting background command: %v", err)
+			fmt.Fprintf(cmd.Stderr, "Error starting background command: %v\n", err)
 			cmd.ReturnCode = 1
 			return
 		}
-	}
+		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
+		fmt.Printf("[%d] %d\n", job.ID, job.Cmd.Process.Pid)
+		go func() {
+			err := lastExecCmd.Wait()
+			if err != nil {
+				log.Printf("Background command execution error: %v", err)
+			}
+			cmd.JobManager.RemoveJob(job.ID)
+		}()
+	} else {
+		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
+		cmd.JobManager.SetForegroundJob(job)
+		defer cmd.JobManager.SetForegroundJob(nil)
 
-	for _, c := range cmds {
-		err := c.Wait()
+		err := lastExecCmd.Run()
 		if err != nil {
 			log.Printf("Command execution error: %v", err)
-			fmt.Fprintf(cmd.Stderr, "%s: %v\n", c.Path, err)
+			fmt.Fprintf(cmd.Stderr, "%s: %v\n", lastExecCmd.Path, err)
 			cmd.ReturnCode = 1
+		} else {
+			cmd.ReturnCode = lastExecCmd.ProcessState.ExitCode()
 		}
+
+		cmd.JobManager.RemoveJob(job.ID)
 	}
 
-	if len(cmds) > 0 {
-		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
-	}
 	log.Printf("Pipeline executed, last command exit code: %d", cmd.ReturnCode)
-}
-
-func (cmd *Command) executeBuiltin(builtinCmd func(*Command), args []string, inputRedirectType, inputFilename, outputRedirectType, outputFilename string) {
-	oldStdin := cmd.Stdin
-	oldStdout := cmd.Stdout
-	defer func() {
-		cmd.Stdin = oldStdin
-		cmd.Stdout = oldStdout
-	}()
-
-	if inputRedirectType == "<" {
-		inputFile, err := os.Open(inputFilename)
-		if err != nil {
-			log.Printf("Error opening input file: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
-			cmd.ReturnCode = 1
-			return
-		}
-		defer inputFile.Close()
-		cmd.Stdin = inputFile
-	}
-
-	if outputRedirectType != "" {
-		var file *os.File
-		var err error
-
-		switch outputRedirectType {
-		case ">":
-			file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-		case ">>":
-			file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-		default:
-			err = fmt.Errorf("unknown redirection type: %s", outputRedirectType)
-		}
-
-		if err != nil {
-			log.Printf("Error opening output file: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
-			cmd.ReturnCode = 1
-			return
-		}
-		defer file.Close()
-		cmd.Stdout = file
-	}
-
-	cmd.Pipelines[0].Commands[0].Parts = append([]string{cmd.Pipelines[0].Commands[0].Parts[0]}, args...)
-	builtinCmd(cmd)
 }

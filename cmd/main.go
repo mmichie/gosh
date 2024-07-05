@@ -5,7 +5,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 	"time"
 
 	"gosh"
@@ -21,6 +23,7 @@ func main() {
 
 	fmt.Println("Welcome to gosh Shell")
 
+	jobManager := gosh.NewJobManager()
 	completer := gosh.NewCompleter(gosh.Builtins())
 
 	rl, err := readline.NewEx(&readline.Config{
@@ -40,6 +43,25 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to create history manager: %v", err)
 	}
+
+	// Set up signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTSTP, syscall.SIGINT, syscall.SIGCHLD)
+
+	go func() {
+		for sig := range sigChan {
+			switch sig {
+			case syscall.SIGTSTP:
+				fmt.Println("\nReceived SIGTSTP")
+				jobManager.StopForegroundJob()
+			case syscall.SIGINT:
+				fmt.Println("\nReceived SIGINT")
+				jobManager.StopForegroundJob()
+			case syscall.SIGCHLD:
+				jobManager.ReapChildren()
+			}
+		}
+	}()
 
 	fmt.Println("Tab completion is being initialized in the background. It will be fully functional shortly.")
 
@@ -66,7 +88,7 @@ func main() {
 			continue
 		}
 
-		command, err := gosh.NewCommand(line)
+		command, err := gosh.NewCommand(line, jobManager)
 		if err != nil {
 			log.Printf("Error creating command: %v", err)
 			continue
