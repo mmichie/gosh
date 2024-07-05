@@ -48,12 +48,7 @@ func (cmd *Command) Run() {
 	}
 	cmd.CWD = cwd
 
-	if cmd.SimpleCommand != nil {
-		cmd.simpleExec()
-	} else if cmd.PipelineCommand != nil {
-		cmd.pipelineExec()
-	}
-	// Add code to handle other command types (ForLoop, IfCondition, CaseStatement) if needed
+	cmd.simpleExec()
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
@@ -71,13 +66,11 @@ func (cmd *Command) Run() {
 }
 
 func (cmd *Command) simpleExec() {
-	if cmd.SimpleCommand == nil || len(cmd.SimpleCommand.Command) == 0 {
-		log.Println("Simple command is nil or has no command")
-		return
-	}
+	cmdName, args, redirectType, filename := parser.ProcessCommand(cmd.Command)
 
-	cmdName := cmd.SimpleCommand.Command[0].Value
 	log.Printf("Executing command: %s", cmdName)
+	log.Printf("Command arguments: %v", args)
+	log.Printf("Redirection: %s %s", redirectType, filename)
 
 	// Check for built-in commands
 	if builtinCmd, ok := builtins[cmdName]; ok {
@@ -87,19 +80,23 @@ func (cmd *Command) simpleExec() {
 	}
 
 	// External command execution
-	cmdArgs := make([]string, 0)
-	for _, item := range cmd.SimpleCommand.Command[1:] {
-		cmdArgs = append(cmdArgs, item.Value)
-	}
-	log.Printf("Command arguments: %v", cmdArgs)
-
-	execCmd := exec.Command(cmdName, cmdArgs...)
+	execCmd := exec.Command(cmdName, args...)
 	execCmd.Stdin = cmd.Stdin
 	execCmd.Stderr = cmd.Stderr
 
-	if cmd.SimpleCommand.Redirection != nil {
-		log.Printf("Redirection detected: %+v", cmd.SimpleCommand.Redirection)
-		file, err := os.OpenFile(cmd.SimpleCommand.Redirection.Filename.Value, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	if redirectType != "" {
+		var file *os.File
+		var err error
+
+		switch redirectType {
+		case ">":
+			file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		case ">>":
+			file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		default:
+			err = fmt.Errorf("unknown redirection type: %s", redirectType)
+		}
+
 		if err != nil {
 			log.Printf("Error opening output file: %v", err)
 			fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
@@ -123,11 +120,4 @@ func (cmd *Command) simpleExec() {
 		log.Printf("Command executed successfully, exit code: %d", execCmd.ProcessState.ExitCode())
 		cmd.ReturnCode = execCmd.ProcessState.ExitCode()
 	}
-}
-
-func (cmd *Command) pipelineExec() {
-	// Implementation for pipeline execution
-	// This is more complex and involves creating pipes between commands
-	// For now, we'll leave this as a placeholder
-	fmt.Fprintln(cmd.Stderr, "Pipeline execution not implemented yet")
 }

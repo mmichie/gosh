@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"gosh/parser"
 )
 
 // Define builtins as a variable without initializing it immediately.
@@ -29,11 +31,12 @@ func help(cmd *Command) {
 
 // cd changes the current working directory.
 func cd(cmd *Command) {
+	_, args, _, _ := parser.ProcessCommand(cmd.Command)
 	var dir string
-	if len(cmd.SimpleCommand.Command) == 1 {
+	if len(args) == 0 {
 		dir = os.Getenv("HOME")
 	} else {
-		dir = cmd.SimpleCommand.Command[1].Value
+		dir = args[0]
 	}
 	if err := os.Chdir(dir); err != nil {
 		fmt.Println("cd:", err)
@@ -55,10 +58,7 @@ func exitShell(cmd *Command) {
 }
 
 func echo(cmd *Command) {
-	args := make([]string, len(cmd.SimpleCommand.Command)-1)
-	for i, item := range cmd.SimpleCommand.Command[1:] {
-		args[i] = item.Value
-	}
+	_, args, _, _ := parser.ProcessCommand(cmd.Command)
 	fmt.Println(strings.Join(args, " "))
 }
 

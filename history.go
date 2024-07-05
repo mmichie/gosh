@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"gosh/parser"
+
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -53,13 +55,9 @@ func NewHistoryManager(dbPath string) (*HistoryManager, error) {
 func (h *HistoryManager) Insert(cmd *Command, sessionID int) error {
 	insertSQL := `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, args, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
-	command := cmd.SimpleCommand.Command[0].Value
-	args := make([]string, len(cmd.SimpleCommand.Command)-1)
-	for i, item := range cmd.SimpleCommand.Command[1:] {
-		args[i] = item.Value
-	}
+	cmdName, args, _, _ := parser.ProcessCommand(cmd.Command)
 
-	_, err := h.db.Exec(insertSQL, sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), command, strings.Join(args, " "), cmd.ReturnCode)
+	_, err := h.db.Exec(insertSQL, sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), cmdName, strings.Join(args, " "), cmd.ReturnCode)
 	return err
 }
 
