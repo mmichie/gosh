@@ -45,11 +45,11 @@ func help(cmd *Command) {
 }
 
 func cd(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
 		fmt.Println("cd: no arguments")
 		return
 	}
-	_, args, _, _, _, _ := parser.ProcessCommand(cmd.AndCommands[0].Left.Commands[0])
+	_, args, _, _, _, _ := parser.ProcessCommand(cmd.AndCommands[0].Pipelines[0].Commands[0])
 	var dir string
 	if len(args) == 0 {
 		dir = os.Getenv("HOME")
@@ -74,10 +74,10 @@ func exitShell(cmd *Command) {
 }
 
 func echo(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
 		return
 	}
-	_, args, _, _, _, _ := parser.ProcessCommand(cmd.AndCommands[0].Left.Commands[0])
+	_, args, _, _, _, _ := parser.ProcessCommand(cmd.AndCommands[0].Pipelines[0].Commands[0])
 	output := strings.Join(args, " ")
 	fmt.Fprintln(cmd.Stdout, output)
 }
@@ -105,12 +105,12 @@ func env(cmd *Command) {
 }
 
 func export(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 || len(cmd.AndCommands[0].Left.Commands[0].Parts) < 2 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts) < 2 {
 		fmt.Fprintln(cmd.Stderr, "Usage: export NAME=VALUE")
 		return
 	}
 
-	assignment := cmd.AndCommands[0].Left.Commands[0].Parts[1]
+	assignment := cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1]
 	parts := strings.SplitN(assignment, "=", 2)
 	if len(parts) != 2 {
 		fmt.Fprintln(cmd.Stderr, "Invalid export syntax. Usage: export NAME=VALUE")
@@ -122,7 +122,7 @@ func export(cmd *Command) {
 }
 
 func alias(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
 		// List all aliases
 		for _, a := range ListAliases() {
 			fmt.Println(a)
@@ -130,7 +130,7 @@ func alias(cmd *Command) {
 		return
 	}
 
-	parts := cmd.AndCommands[0].Left.Commands[0].Parts
+	parts := cmd.AndCommands[0].Pipelines[0].Commands[0].Parts
 	if len(parts) < 2 {
 		fmt.Fprintln(cmd.Stderr, "Usage: alias name='command'")
 		return
@@ -149,12 +149,12 @@ func alias(cmd *Command) {
 }
 
 func unalias(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 || len(cmd.AndCommands[0].Left.Commands[0].Parts) < 2 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts) < 2 {
 		fmt.Fprintln(cmd.Stderr, "Usage: unalias name")
 		return
 	}
 
-	name := cmd.AndCommands[0].Left.Commands[0].Parts[1]
+	name := cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1]
 	RemoveAlias(name)
 }
 
@@ -166,11 +166,11 @@ func jobs(cmd *Command) {
 }
 
 func fg(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 || len(cmd.AndCommands[0].Left.Commands[0].Parts) < 2 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts) < 2 {
 		fmt.Fprintln(cmd.Stderr, "Usage: fg <job_id>")
 		return
 	}
-	jobID, err := strconv.Atoi(cmd.AndCommands[0].Left.Commands[0].Parts[1])
+	jobID, err := strconv.Atoi(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1])
 	if err != nil {
 		fmt.Fprintln(cmd.Stderr, "Invalid job ID")
 		return
@@ -182,11 +182,11 @@ func fg(cmd *Command) {
 }
 
 func bg(cmd *Command) {
-	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Left.Commands) == 0 || len(cmd.AndCommands[0].Left.Commands[0].Parts) < 2 {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts) < 2 {
 		fmt.Fprintln(cmd.Stderr, "Usage: bg <job_id>")
 		return
 	}
-	jobID, err := strconv.Atoi(cmd.AndCommands[0].Left.Commands[0].Parts[1])
+	jobID, err := strconv.Atoi(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1])
 	if err != nil {
 		fmt.Fprintln(cmd.Stderr, "Invalid job ID")
 		return

@@ -52,12 +52,15 @@ func (cmd *Command) Run() {
 	cmd.CWD = cwd
 
 	for _, andCommand := range cmd.AndCommands {
-		success := cmd.executePipeline(andCommand.Left)
+		success := true
+		for _, pipeline := range andCommand.Pipelines {
+			success = cmd.executePipeline(pipeline)
+			if !success {
+				break
+			}
+		}
 		if !success {
 			break
-		}
-		if andCommand.Right != nil {
-			cmd.executePipeline(andCommand.Right)
 		}
 	}
 

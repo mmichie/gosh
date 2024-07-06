@@ -14,7 +14,8 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
 	{Name: "Redirect", Pattern: `>>|>|<`},
-	{Name: "Word", Pattern: `[^\s|><&]+`},
+	{Name: "Quote", Pattern: `'[^']*'|"[^"]*"`},
+	{Name: "Word", Pattern: `[^\s|><&'"]+`},
 })
 
 type Command struct {
@@ -22,8 +23,7 @@ type Command struct {
 }
 
 type AndCommand struct {
-	Left  *Pipeline `parser:"@@"`
-	Right *Pipeline `parser:"( '&&' @@ )?"`
+	Pipelines []*Pipeline `parser:"@@ ( '&&' @@ )*"`
 }
 
 type Pipeline struct {
@@ -31,7 +31,13 @@ type Pipeline struct {
 }
 
 type SimpleCommand struct {
-	Parts []string `parser:"@Word+ ( @Redirect @Word )*"`
+	Parts     []string    `parser:"@(Word | Quote)+"`
+	Redirects []*Redirect `parser:"@@*"`
+}
+
+type Redirect struct {
+	Type string `parser:"@Redirect"`
+	File string `parser:"@Word"`
 }
 
 var parser = participle.MustBuild[Command](
@@ -40,11 +46,20 @@ var parser = participle.MustBuild[Command](
 )
 
 func Parse(input string) (*Command, error) {
+	if strings.TrimSpace(input) == "" {
+		return nil, fmt.Errorf("empty input")
+	}
+
 	command, err := parser.ParseString("", input)
 	if err != nil {
 		log.Printf("Failed to parse command string: %s, error: %v", input, err)
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
+
+	if len(command.AndCommands) == 0 {
+		return nil, fmt.Errorf("no valid commands found")
+	}
+
 	return command, nil
 }
 
@@ -54,27 +69,16 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, strin
 	}
 
 	command := cmd.Parts[0]
-	args := []string{}
-	inputRedirectType := ""
-	inputFilename := ""
-	outputRedirectType := ""
-	outputFilename := ""
+	args := cmd.Parts[1:]
+	var inputRedirectType, inputFilename, outputRedirectType, outputFilename string
 
-	for i := 1; i < len(cmd.Parts); i++ {
-		if cmd.Parts[i] == "<" {
-			inputRedirectType = cmd.Parts[i]
-			if i+1 < len(cmd.Parts) {
-				inputFilename = cmd.Parts[i+1]
-			}
-			i++ // Skip the next part as it's the input filename
-		} else if cmd.Parts[i] == ">" || cmd.Parts[i] == ">>" {
-			outputRedirectType = cmd.Parts[i]
-			if i+1 < len(cmd.Parts) {
-				outputFilename = cmd.Parts[i+1]
-			}
-			i++ // Skip the next part as it's the output filename
-		} else {
-			args = append(args, cmd.Parts[i])
+	for _, redirect := range cmd.Redirects {
+		if redirect.Type == "<" {
+			inputRedirectType = redirect.Type
+			inputFilename = redirect.File
+		} else if redirect.Type == ">" || redirect.Type == ">>" {
+			outputRedirectType = redirect.Type
+			outputFilename = redirect.File
 		}
 	}
 
@@ -87,10 +91,11 @@ func FormatCommand(cmd *Command) string {
 		if i > 0 {
 			result.WriteString(" && ")
 		}
-		result.WriteString(formatPipeline(andCmd.Left))
-		if andCmd.Right != nil {
-			result.WriteString(" && ")
-			result.WriteString(formatPipeline(andCmd.Right))
+		for j, pipeline := range andCmd.Pipelines {
+			if j > 0 {
+				result.WriteString(" && ")
+			}
+			result.WriteString(formatPipeline(pipeline))
 		}
 	}
 	return result.String()
@@ -103,6 +108,12 @@ func formatPipeline(pipeline *Pipeline) string {
 			result.WriteString(" | ")
 		}
 		result.WriteString(strings.Join(simpleCmd.Parts, " "))
+		for _, redirect := range simpleCmd.Redirects {
+			result.WriteString(" ")
+			result.WriteString(redirect.Type)
+			result.WriteString(" ")
+			result.WriteString(redirect.File)
+		}
 	}
 	return result.String()
 }

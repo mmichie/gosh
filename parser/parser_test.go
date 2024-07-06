@@ -1,76 +1,284 @@
 package parser
 
 import (
+	"reflect"
 	"testing"
 )
 
-// Test parsing of valid command inputs.
 func TestParseValidInputs(t *testing.T) {
 	testCases := []struct {
-		input   string
-		wantErr bool
+		name     string
+		input    string
+		expected *Command
 	}{
-		{"ls -l", false},
-		{"echo 'hello world'", false},
-		{"cat myfile.txt", false},
-		{"rm -rf /", false},
-		{"grep -i 'pattern' file.txt", false},
-		{"cd /path/to/directory", false},
-		{"pwd", false},
-		{"mkdir new_directory", false},
-		{"touch new_file.txt", false},
-		{"cp file1.txt file2.txt", false},
-		{"mv old_name.txt new_name.txt", false},
-		{"find . -name '*.txt'", false},
-		{"sed 's/old/new/g' file.txt", false},
-		{"awk '{print $1}' file.txt", false},
-		{"sort file.txt", false},
-		{"uniq -c file.txt", false},
-		{"head -n 10 file.txt", false},
-		{"tail -f /var/log/syslog", false},
-		{"tar -czvf archive.tar.gz directory/", false},
-		{"gzip file.txt", false},
-		{"ping google.com", false},
-		{"nslookup example.com", false},
-		{"ssh user@remote.host", false},
-		{"scp file.txt user@remote.host:/path/", false},
+		{
+			name:  "Simple command",
+			input: "ls -l",
+			expected: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"ls", "-l"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "Pipeline",
+			input: "cat file.txt | grep pattern",
+			expected: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"cat", "file.txt"}},
+									{Parts: []string{"grep", "pattern"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "AND command",
+			input: "mkdir test && cd test",
+			expected: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"mkdir", "test"}},
+								},
+							},
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"cd", "test"}},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name:  "Command with redirections",
+			input: "echo 'Hello' > output.txt",
+			expected: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{
+										Parts: []string{"echo", "'Hello'"},
+										Redirects: []*Redirect{
+											{Type: ">", File: "output.txt"},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
-		_, err := Parse(tc.input)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("Parse(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := Parse(tc.input)
+			if err != nil {
+				t.Fatalf("Parse(%q) returned unexpected error: %v", tc.input, err)
+			}
+			if !reflect.DeepEqual(result, tc.expected) {
+				t.Errorf("Parse(%q) = %+v, want %+v", tc.input, result, tc.expected)
+			}
+		})
 	}
 }
 
-// Test parsing of invalid command inputs.
 func TestParseInvalidInputs(t *testing.T) {
 	testCases := []struct {
-		input   string
-		wantErr bool
+		name  string
+		input string
 	}{
-		{"ls |", true},
-		{"echo >", true},
-		{"cat", true},
-		{"| grep", true},
-		{"cp file1.txt", true},
-		{"mv old_name.txt", true},
-		{"find .", true},
-		{"sed 's/old/new/g'", true},
-		{"awk '{print $1}'", true},
-		{"head -n", true},
-		{"tail -f", true},
-		{"tar -czvf", true},
-		{"gzip", true},
-		{"ssh", true},
-		{"scp file.txt", true},
+		{"Empty input", ""},
+		{"Whitespace only", "   "},
+		{"Incomplete pipeline", "ls |"},
+		{"Incomplete AND", "ls &&"},
+		{"Invalid redirection", "cat file.txt >"},
+		{"Unmatched quote", "echo 'hello"},
 	}
 
 	for _, tc := range testCases {
-		_, err := Parse(tc.input)
-		if (err != nil) != tc.wantErr {
-			t.Errorf("Parse(%q) returned error: %v, wantErr %t", tc.input, err, tc.wantErr)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Parse(tc.input)
+			if err == nil {
+				t.Errorf("Parse(%q) did not return an error, want error", tc.input)
+			}
+		})
+	}
+}
+
+func TestProcessCommand(t *testing.T) {
+	testCases := []struct {
+		name                string
+		input               *SimpleCommand
+		expectedCommand     string
+		expectedArgs        []string
+		expectedInputRedir  string
+		expectedInputFile   string
+		expectedOutputRedir string
+		expectedOutputFile  string
+	}{
+		{
+			name: "Simple command",
+			input: &SimpleCommand{
+				Parts: []string{"ls", "-l"},
+			},
+			expectedCommand:     "ls",
+			expectedArgs:        []string{"-l"},
+			expectedInputRedir:  "",
+			expectedInputFile:   "",
+			expectedOutputRedir: "",
+			expectedOutputFile:  "",
+		},
+		{
+			name: "Command with input redirection",
+			input: &SimpleCommand{
+				Parts: []string{"cat"},
+				Redirects: []*Redirect{
+					{Type: "<", File: "input.txt"},
+				},
+			},
+			expectedCommand:     "cat",
+			expectedArgs:        []string{},
+			expectedInputRedir:  "<",
+			expectedInputFile:   "input.txt",
+			expectedOutputRedir: "",
+			expectedOutputFile:  "",
+		},
+		{
+			name: "Command with output redirection",
+			input: &SimpleCommand{
+				Parts: []string{"echo", "hello"},
+				Redirects: []*Redirect{
+					{Type: ">", File: "output.txt"},
+				},
+			},
+			expectedCommand:     "echo",
+			expectedArgs:        []string{"hello"},
+			expectedInputRedir:  "",
+			expectedInputFile:   "",
+			expectedOutputRedir: ">",
+			expectedOutputFile:  "output.txt",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			command, args, inputRedir, inputFile, outputRedir, outputFile := ProcessCommand(tc.input)
+			if command != tc.expectedCommand {
+				t.Errorf("ProcessCommand() command = %v, want %v", command, tc.expectedCommand)
+			}
+			if !reflect.DeepEqual(args, tc.expectedArgs) {
+				t.Errorf("ProcessCommand() args = %v, want %v", args, tc.expectedArgs)
+			}
+			if inputRedir != tc.expectedInputRedir {
+				t.Errorf("ProcessCommand() inputRedir = %v, want %v", inputRedir, tc.expectedInputRedir)
+			}
+			if inputFile != tc.expectedInputFile {
+				t.Errorf("ProcessCommand() inputFile = %v, want %v", inputFile, tc.expectedInputFile)
+			}
+			if outputRedir != tc.expectedOutputRedir {
+				t.Errorf("ProcessCommand() outputRedir = %v, want %v", outputRedir, tc.expectedOutputRedir)
+			}
+			if outputFile != tc.expectedOutputFile {
+				t.Errorf("ProcessCommand() outputFile = %v, want %v", outputFile, tc.expectedOutputFile)
+			}
+		})
+	}
+}
+
+func TestFormatCommand(t *testing.T) {
+	testCases := []struct {
+		name     string
+		input    *Command
+		expected string
+	}{
+		{
+			name: "Simple command",
+			input: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"ls", "-l"}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: "ls -l",
+		},
+		{
+			name: "Pipeline",
+			input: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"cat", "file.txt"}},
+									{Parts: []string{"grep", "pattern"}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: "cat file.txt | grep pattern",
+		},
+		{
+			name: "AND command",
+			input: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"mkdir", "test"}},
+								},
+							},
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"cd", "test"}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: "mkdir test && cd test",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := FormatCommand(tc.input)
+			if result != tc.expected {
+				t.Errorf("FormatCommand() = %v, want %v", result, tc.expected)
+			}
+		})
 	}
 }
