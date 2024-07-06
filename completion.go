@@ -53,10 +53,10 @@ func (c *Completer) Do(line []rune, pos int) (newLine [][]rune, length int) {
 		return c.completeCommands("", false)
 	}
 
-	if len(parts) == 1 {
-		return c.completeCommands(parts[0], true)
+	lastPart := parts[len(parts)-1]
+	if lastPart == "&&" {
+		return c.completeCommands("", false)
 	}
-
 	// Complete filenames for arguments
 	return c.completeFilenames(lineStr)
 }

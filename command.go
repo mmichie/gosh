@@ -51,15 +51,21 @@ func (cmd *Command) Run() {
 	}
 	cmd.CWD = cwd
 
-	for _, pipeline := range cmd.Pipelines {
-		cmd.executePipeline(pipeline)
+	for _, andCommand := range cmd.AndCommands {
+		success := cmd.executePipeline(andCommand.Left)
+		if !success {
+			break
+		}
+		if andCommand.Right != nil {
+			cmd.executePipeline(andCommand.Right)
+		}
 	}
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 }
 
-func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
+func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var prevOut io.ReadCloser = nil
 	var cmds []*exec.Cmd
 
@@ -75,7 +81,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 
 		if builtinCmd, ok := builtins[cmdName]; ok {
 			builtinCmd(cmd)
-			return
+			return cmd.ReturnCode == 0
 		}
 
 		execCmd := exec.Command(cmdName, args...)
@@ -88,7 +94,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 					log.Printf("Error opening input file: %v", err)
 					fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
 					cmd.ReturnCode = 1
-					return
+					return false
 				}
 				defer inputFile.Close()
 				execCmd.Stdin = inputFile
@@ -117,7 +123,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 					log.Printf("Error opening output file: %v", err)
 					fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
 					cmd.ReturnCode = 1
-					return
+					return false
 				}
 				defer file.Close()
 				execCmd.Stdout = file
@@ -131,7 +137,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 				log.Printf("Error creating pipe: %v", err)
 				fmt.Fprintf(cmd.Stderr, "Error creating pipe: %v\n", err)
 				cmd.ReturnCode = 1
-				return
+				return false
 			}
 		}
 
@@ -146,7 +152,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 			log.Printf("Error starting background command: %v", err)
 			fmt.Fprintf(cmd.Stderr, "Error starting background command: %v\n", err)
 			cmd.ReturnCode = 1
-			return
+			return false
 		}
 		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
 		fmt.Printf("[%d] %d\n", job.ID, job.Cmd.Process.Pid)
@@ -157,6 +163,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 			}
 			cmd.JobManager.RemoveJob(job.ID)
 		}()
+		return true // Background jobs are considered successful for &&
 	} else {
 		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
 		cmd.JobManager.SetForegroundJob(job)
@@ -172,5 +179,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) {
 		}
 
 		cmd.JobManager.RemoveJob(job.ID)
+		return cmd.ReturnCode == 0
 	}
 }

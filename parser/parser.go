@@ -12,12 +12,18 @@ import (
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Whitespace", Pattern: `\s+`},
 	{Name: "Pipe", Pattern: `\|`},
+	{Name: "And", Pattern: `&&`},
 	{Name: "Redirect", Pattern: `>>|>|<`},
-	{Name: "Word", Pattern: `[^\s|><]+`},
+	{Name: "Word", Pattern: `[^\s|><&]+`},
 })
 
 type Command struct {
-	Pipelines []*Pipeline `parser:"@@+"`
+	AndCommands []*AndCommand `parser:"@@+"`
+}
+
+type AndCommand struct {
+	Left  *Pipeline `parser:"@@"`
+	Right *Pipeline `parser:"( '&&' @@ )?"`
 }
 
 type Pipeline struct {
@@ -77,16 +83,26 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, strin
 
 func FormatCommand(cmd *Command) string {
 	var result strings.Builder
-	for i, pipeline := range cmd.Pipelines {
+	for i, andCmd := range cmd.AndCommands {
 		if i > 0 {
+			result.WriteString(" && ")
+		}
+		result.WriteString(formatPipeline(andCmd.Left))
+		if andCmd.Right != nil {
+			result.WriteString(" && ")
+			result.WriteString(formatPipeline(andCmd.Right))
+		}
+	}
+	return result.String()
+}
+
+func formatPipeline(pipeline *Pipeline) string {
+	var result strings.Builder
+	for j, simpleCmd := range pipeline.Commands {
+		if j > 0 {
 			result.WriteString(" | ")
 		}
-		for j, simpleCmd := range pipeline.Commands {
-			if j > 0 {
-				result.WriteString(" | ")
-			}
-			result.WriteString(strings.Join(simpleCmd.Parts, " "))
-		}
+		result.WriteString(strings.Join(simpleCmd.Parts, " "))
 	}
 	return result.String()
 }
