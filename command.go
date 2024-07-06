@@ -1,6 +1,7 @@
 package gosh
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,16 @@ import (
 
 	"gosh/parser"
 )
+
+// DebugMode controls whether debug output is printed
+var DebugMode bool
+
+// debugPrint prints debug output if DebugMode is true
+func debugPrint(format string, v ...interface{}) {
+	if DebugMode {
+		log.Printf(format, v...)
+	}
+}
 
 type Command struct {
 	*parser.Command
@@ -47,7 +58,7 @@ func (cmd *Command) Run() {
 	cmd.EUID = os.Geteuid()
 	cwd, err := os.Getwd()
 	if err != nil {
-		log.Printf("Error getting current working directory: %v", err)
+		debugPrint("Error getting current working directory: %v", err)
 	}
 	cmd.CWD = cwd
 
@@ -69,119 +80,94 @@ func (cmd *Command) Run() {
 }
 
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
-	var prevOut io.ReadCloser = nil
+	debugPrint("Executing pipeline: %v", pipeline)
 	var cmds []*exec.Cmd
 
-	lastCmd := pipeline.Commands[len(pipeline.Commands)-1]
-	isBackground := false
-	if len(lastCmd.Parts) > 0 && lastCmd.Parts[len(lastCmd.Parts)-1] == "&" {
-		isBackground = true
-		lastCmd.Parts = lastCmd.Parts[:len(lastCmd.Parts)-1]
-	}
-
+	// Create commands
 	for i, simpleCmd := range pipeline.Commands {
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, _, _, _, _ := parser.ProcessCommand(simpleCmd)
+		debugPrint("Command %d: %s %v", i, cmdName, args)
 
-		if builtinCmd, ok := builtins[cmdName]; ok {
-			builtinCmd(cmd)
-			return cmd.ReturnCode == 0
+		// Handle quotes in arguments
+		var processedArgs []string
+		for _, arg := range args {
+			if strings.HasPrefix(arg, "'") && strings.HasSuffix(arg, "'") {
+				// Remove surrounding single quotes
+				processedArgs = append(processedArgs, arg[1:len(arg)-1])
+			} else {
+				processedArgs = append(processedArgs, arg)
+			}
 		}
 
-		execCmd := exec.Command(cmdName, args...)
+		execCmd := exec.Command(cmdName, processedArgs...)
 		cmds = append(cmds, execCmd)
-
-		if i == 0 {
-			if inputRedirectType == "<" {
-				inputFile, err := os.Open(inputFilename)
-				if err != nil {
-					log.Printf("Error opening input file: %v", err)
-					fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
-					cmd.ReturnCode = 1
-					return false
-				}
-				defer inputFile.Close()
-				execCmd.Stdin = inputFile
-			} else {
-				execCmd.Stdin = cmd.Stdin
-			}
-		} else {
-			execCmd.Stdin = prevOut
-		}
-
-		if i == len(pipeline.Commands)-1 {
-			if outputRedirectType != "" {
-				var file *os.File
-				var err error
-
-				switch outputRedirectType {
-				case ">":
-					file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-				case ">>":
-					file, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-				default:
-					err = fmt.Errorf("unknown redirection type: %s", outputRedirectType)
-				}
-
-				if err != nil {
-					log.Printf("Error opening output file: %v", err)
-					fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
-					cmd.ReturnCode = 1
-					return false
-				}
-				defer file.Close()
-				execCmd.Stdout = file
-			} else {
-				execCmd.Stdout = cmd.Stdout
-			}
-		} else {
-			var err error
-			prevOut, err = execCmd.StdoutPipe()
-			if err != nil {
-				log.Printf("Error creating pipe: %v", err)
-				fmt.Fprintf(cmd.Stderr, "Error creating pipe: %v\n", err)
-				cmd.ReturnCode = 1
-				return false
-			}
-		}
-
-		execCmd.Stderr = cmd.Stderr
 	}
 
-	lastExecCmd := cmds[len(cmds)-1]
+	// Connect commands with pipes
+	for i := 0; i < len(cmds)-1; i++ {
+		reader, writer := io.Pipe()
+		cmds[i].Stdout = writer
+		cmds[i+1].Stdin = reader
+		debugPrint("Connected pipe between command %d and %d", i, i+1)
+	}
 
-	if isBackground {
-		err := lastExecCmd.Start()
+	// Capture the output of the last command
+	var output bytes.Buffer
+	cmds[len(cmds)-1].Stdout = io.MultiWriter(&output, cmd.Stdout)
+
+	// Set stderr for all commands
+	for i, execCmd := range cmds {
+		execCmd.Stderr = cmd.Stderr
+		debugPrint("Set stderr for command %d", i)
+	}
+
+	// Start all commands
+	for i, execCmd := range cmds {
+		debugPrint("Starting command %d: %v", i, execCmd.Args)
+		err := execCmd.Start()
 		if err != nil {
-			log.Printf("Error starting background command: %v", err)
-			fmt.Fprintf(cmd.Stderr, "Error starting background command: %v\n", err)
+			debugPrint("Error starting command %d: %v", i, err)
+			fmt.Fprintf(cmd.Stderr, "Error starting command: %v\n", err)
 			cmd.ReturnCode = 1
 			return false
 		}
-		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
-		fmt.Printf("[%d] %d\n", job.ID, job.Cmd.Process.Pid)
-		go func() {
-			err := lastExecCmd.Wait()
-			if err != nil {
-				log.Printf("Background command execution error: %v", err)
-			}
-			cmd.JobManager.RemoveJob(job.ID)
-		}()
-		return true // Background jobs are considered successful for &&
-	} else {
-		job := cmd.JobManager.AddJob(strings.Join(lastCmd.Parts, " "), lastExecCmd)
-		cmd.JobManager.SetForegroundJob(job)
-		defer cmd.JobManager.SetForegroundJob(nil)
+	}
 
-		err := lastExecCmd.Run()
+	// Wait for all commands to complete
+	for i, execCmd := range cmds {
+		debugPrint("Waiting for command %d to complete", i)
+		err := execCmd.Wait()
 		if err != nil {
-			log.Printf("Command execution error: %v", err)
-			fmt.Fprintf(cmd.Stderr, "%s: %v\n", lastExecCmd.Path, err)
+			debugPrint("Command %d execution error: %v", i, err)
+			fmt.Fprintf(cmd.Stderr, "%s: %v\n", execCmd.Path, err)
 			cmd.ReturnCode = 1
-		} else {
-			cmd.ReturnCode = lastExecCmd.ProcessState.ExitCode()
+			if i == len(cmds)-1 {
+				return false
+			}
 		}
+		debugPrint("Command %d completed", i)
+		if i < len(cmds)-1 {
+			cmds[i].Stdout.(io.WriteCloser).Close()
+		}
+	}
 
-		cmd.JobManager.RemoveJob(job.ID)
-		return cmd.ReturnCode == 0
+	debugPrint("Pipeline execution completed")
+	debugPrint("Captured output: %s", output.String())
+
+	if len(cmds) > 0 {
+		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
+	}
+	debugPrint("Pipeline return code: %d", cmd.ReturnCode)
+	return cmd.ReturnCode == 0
+}
+
+func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {
+	switch redirectType {
+	case ">":
+		return os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+	case ">>":
+		return os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+	default:
+		return nil, fmt.Errorf("unknown redirection type: %s", redirectType)
 	}
 }

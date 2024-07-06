@@ -8,13 +8,13 @@ import (
 )
 
 type Completer struct {
-	builtins     map[string]func(*Command)
+	builtins     map[string]func(cmd *Command) error
 	commands     []string
 	commandsLock sync.RWMutex
 	loaded       chan struct{}
 }
 
-func NewCompleter(builtins map[string]func(*Command)) *Completer {
+func NewCompleter(builtins map[string]func(cmd *Command) error) *Completer {
 	c := &Completer{
 		builtins: builtins,
 		commands: make([]string, 0, len(builtins)),
