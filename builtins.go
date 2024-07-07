@@ -68,7 +68,6 @@ func cd(cmd *Command) error {
 	// Update the global state
 	gs.UpdateCWD(newDir)
 
-	fmt.Fprintf(cmd.Stdout, "%s\n", newDir)
 	return nil
 }
 
@@ -257,7 +256,7 @@ func prompt(cmd *Command) error {
 		}
 		fmt.Fprintf(cmd.Stdout, "Current prompt: %s\n", currentPrompt)
 		fmt.Fprintf(cmd.Stdout, "Usage: prompt <new_prompt>\n")
-		fmt.Fprintf(cmd.Stdout, "Available variables: %u (username), %h (hostname), %w (working directory), %W (shortened working directory), %d (date), %t (time), %$ ($ symbol)\n")
+		fmt.Fprintf(cmd.Stdout, "Available variables: %%u (username), %%h (hostname), %%w (working directory), %%W (shortened working directory), %%d (date), %%t (time), %%$ ($ symbol)\n")
 		return nil
 	}
 
