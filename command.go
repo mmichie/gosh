@@ -11,11 +11,6 @@ import (
 	"gosh/parser"
 )
 
-type CommandState struct {
-	CWD         string
-	PreviousDir string
-}
-
 type Command struct {
 	*parser.Command
 	Stdin      io.Reader
@@ -28,7 +23,6 @@ type Command struct {
 	EUID       int
 	ReturnCode int
 	JobManager *JobManager
-	State      *CommandState
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
@@ -36,17 +30,12 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
-	cwd, _ := os.Getwd()
 	return &Command{
 		Command:    parsedCmd,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		JobManager: jobManager,
-		State: &CommandState{
-			CWD:         cwd,
-			PreviousDir: cwd,
-		},
 	}, nil
 }
 
@@ -88,7 +77,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				Stdin:   lastOutput,
 				Stdout:  &output,
 				Stderr:  cmd.Stderr,
-				State:   cmd.State,
 			}
 			err := builtin(tmpCmd)
 			if err != nil {
@@ -105,7 +93,8 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		} else {
 			// Handle external commands
 			execCmd := exec.Command(cmdName, args...)
-			execCmd.Dir = cmd.State.CWD
+			gs := GetGlobalState()
+			execCmd.Dir = gs.GetCWD()
 			execCmd.Stdin = lastOutput
 			execCmd.Stderr = cmd.Stderr
 
@@ -121,6 +110,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			cmds = append(cmds, execCmd)
 		}
 	}
+
 	// Start all commands
 	for _, execCmd := range cmds {
 		err := execCmd.Start()

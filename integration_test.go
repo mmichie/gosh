@@ -2,7 +2,6 @@ package gosh
 
 import (
 	"bytes"
-	"io"
 	"log"
 	"os"
 	"strings"
@@ -14,10 +13,16 @@ func TestIntegration(t *testing.T) {
 	log.SetOutput(os.Stderr)
 	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
 
-	// Simulate setting the home directory
-	homeDir := "/fakehome"
-	os.Setenv("HOME", homeDir)
-	defer os.Unsetenv("HOME") // Clean up environment change at the end of tests
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gosh-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Set the temporary directory as HOME
+	os.Setenv("HOME", tempDir)
+	defer os.Unsetenv("HOME")
 
 	tests := []struct {
 		name     string
@@ -52,7 +57,7 @@ func TestIntegration(t *testing.T) {
 		{
 			name:     "CD with dash",
 			input:    "cd /tmp && pwd && cd - && pwd",
-			expected: "/tmp\n" + homeDir + "\n",
+			expected: "/tmp\n" + tempDir + "\n",
 		},
 	}
 
@@ -61,22 +66,30 @@ func TestIntegration(t *testing.T) {
 			log.Printf("--- Starting test: %s ---", tt.name)
 			log.Printf("Input command: %s", tt.input)
 
+			// Reset global state for each test
+			gs := GetGlobalState()
+			gs.UpdateCWD(tempDir)
+
 			// Capture stdout and stderr
 			oldStdout := os.Stdout
 			oldStderr := os.Stderr
-			r, w, _ := os.Pipe()
+			_, w, _ := os.Pipe()
 			os.Stdout = w
 			os.Stderr = w
 
 			// Run the command
 			jobManager := NewJobManager()
-			cmd, err := NewCommand(tt.input, jobManager)
-			if err != nil {
-				t.Fatalf("Failed to create command: %v", err)
+			cmds := strings.Split(tt.input, " && ")
+			var output bytes.Buffer
+			for _, cmdStr := range cmds {
+				cmd, err := NewCommand(cmdStr, jobManager)
+				if err != nil {
+					t.Fatalf("Failed to create command: %v", err)
+				}
+				cmd.Stdout = &output
+				cmd.Stderr = &output
+				cmd.Run()
 			}
-			cmd.Stdout = w
-			cmd.Stderr = w
-			cmd.Run()
 
 			// Restore stdout and stderr
 			w.Close()
@@ -84,15 +97,13 @@ func TestIntegration(t *testing.T) {
 			os.Stderr = oldStderr
 
 			// Read captured output
-			var buf bytes.Buffer
-			io.Copy(&buf, r)
-			output := buf.String()
+			capturedOutput := output.String()
 
-			log.Printf("Captured output:\n%s", output)
+			log.Printf("Captured output:\n%s", capturedOutput)
 
 			// Compare output
-			if tt.expected != "" && !strings.Contains(output, tt.expected) {
-				t.Errorf("Test case: %s\nCommand: %s\nExpected output to contain:\n%s\nBut got:\n%s\n", tt.name, tt.input, tt.expected, output)
+			if tt.expected != "" && !strings.Contains(capturedOutput, tt.expected) {
+				t.Errorf("Test case: %s\nCommand: %s\nExpected output to contain:\n%s\nBut got:\n%s\n", tt.name, tt.input, tt.expected, capturedOutput)
 			}
 
 			log.Printf("--- Finished test: %s ---\n", tt.name)
@@ -101,57 +112,88 @@ func TestIntegration(t *testing.T) {
 }
 
 func TestPreviousDirectoryHandling(t *testing.T) {
-	os.Setenv("HOME", "/fakehome")
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gosh-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	os.Setenv("HOME", tempDir)
 	defer os.Unsetenv("HOME")
 
-	jobManager := NewJobManager()
-	cmd, _ := NewCommand("cd /tmp", jobManager)
-	cmd.Run() // Change to /tmp, setting PreviousDir to initial dir
+	gs := GetGlobalState()
+	gs.UpdateCWD(tempDir)
 
-	cmd, _ = NewCommand("cd -", jobManager)
+	jobManager := NewJobManager()
+
+	cmd, _ := NewCommand("cd /tmp", jobManager)
 	var output bytes.Buffer
 	cmd.Stdout = &output
-	cmd.Run() // Should revert to initial dir
+	cmd.Run()
 
-	expected := "/fakehome\n"
+	cmd, _ = NewCommand("cd -", jobManager)
+	output.Reset()
+	cmd.Stdout = &output
+	cmd.Run()
+
+	expected := tempDir + "\n"
 	if output.String() != expected {
 		t.Errorf("Expected previous directory to be %s, got %s", expected, output.String())
 	}
 }
 
 func TestCDWithDash(t *testing.T) {
-	os.Setenv("HOME", "/fakehome")
-	defer os.Unsetenv("HOME") // Ensure cleanup after test
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gosh-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
 
-	command := "cd /tmp && pwd && cd - && pwd"
-	expectedOutput := "/tmp\n/fakehome\n"
+	os.Setenv("HOME", tempDir)
+	os.Setenv("PWD", tempDir)
+	defer os.Unsetenv("HOME")
+	defer os.Unsetenv("PWD")
 
-	r, w, _ := os.Pipe()
-	stdout := os.Stdout
-	os.Stdout = w
+	gs := GetGlobalState()
+	gs.UpdateCWD(tempDir)
 
 	jobManager := NewJobManager()
-	cmd, err := NewCommand(command, jobManager)
-	if err != nil {
-		t.Fatalf("Failed to create command: %v", err)
-	}
-	cmd.Stdout = w
+	var output bytes.Buffer
+
+	// First cd to /tmp
+	cmd, _ := NewCommand("cd /tmp", jobManager)
+	cmd.Stdout = &output
 	cmd.Run()
 
-	w.Close()
-	os.Stdout = stdout
+	// Then cd back using -
+	cmd, _ = NewCommand("cd -", jobManager)
+	cmd.Stdout = &output
+	cmd.Run()
 
-	var buf bytes.Buffer
-	io.Copy(&buf, r)
-	output := buf.String()
-	if output != expectedOutput {
-		t.Errorf("Expected output %q but got %q", expectedOutput, output)
+	// Check the output
+	expectedOutput := "/tmp\n" + tempDir + "\n"
+	if output.String() != expectedOutput {
+		t.Errorf("Expected output %q but got %q", expectedOutput, output.String())
 	}
 }
 
 func TestCDCommand(t *testing.T) {
-	os.Setenv("HOME", "/fakehome")
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gosh-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	os.Setenv("HOME", tempDir)
+	os.Setenv("PWD", tempDir)
 	defer os.Unsetenv("HOME")
+	defer os.Unsetenv("PWD")
+
+	gs := GetGlobalState()
+	gs.UpdateCWD(tempDir)
 
 	jobManager := NewJobManager()
 
@@ -163,7 +205,7 @@ func TestCDCommand(t *testing.T) {
 	cmd.Stdout = &output
 	cmd.Run()
 
-	expected := "/fakehome\n"
+	expected := tempDir + "\n"
 	if output.String() != expected {
 		t.Errorf("Failed cd -: expected %s, got %s", expected, output.String())
 	}

@@ -2,7 +2,6 @@ package gosh
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -30,15 +29,9 @@ func init() {
 }
 
 func cd(cmd *Command) error {
-	currentDir, err := os.Getwd()
-	if err != nil {
-		log.Printf("cd error: failed to get current directory: %v", err)
-		return err
-	}
-
 	var targetDir string
+	gs := GetGlobalState()
 
-	// Assuming we always deal with the first command and its parts
 	if len(cmd.AndCommands) > 0 && len(cmd.AndCommands[0].Pipelines) > 0 && len(cmd.AndCommands[0].Pipelines[0].Commands) > 0 {
 		firstCommand := cmd.AndCommands[0].Pipelines[0].Commands[0]
 		if len(firstCommand.Parts) > 1 {
@@ -46,36 +39,41 @@ func cd(cmd *Command) error {
 		}
 	}
 
+	currentDir := gs.GetCWD()
+
 	if targetDir == "" {
 		targetDir = os.Getenv("HOME") // Default to HOME if no argument given
 	} else if targetDir == "-" {
-		previousDir := os.Getenv("PREVIOUS_DIR")
-		if previousDir == "" {
-			log.Printf("cd error: no previous directory to return to")
-			return fmt.Errorf("cd: no previous directory")
+		targetDir = gs.GetPreviousDir()
+		if targetDir == "" {
+			return fmt.Errorf("cd: OLDPWD not set")
 		}
-		targetDir = previousDir
 	}
 
-	if targetDir != currentDir {
-		err = os.Chdir(targetDir)
-		if err != nil {
-			log.Printf("cd error: unable to change directory to %s: %v", targetDir, err)
-			return fmt.Errorf("cd: %v", err)
-		}
-
-		// Update the environment variable for the previous directory
-		os.Setenv("PREVIOUS_DIR", currentDir)
-		log.Printf("cd: changed from %s to %s. Previous directory updated to %s", currentDir, targetDir, currentDir)
-	} else {
-		log.Printf("cd: no change needed, already in %s", currentDir)
+	err := os.Chdir(targetDir)
+	if err != nil {
+		return fmt.Errorf("cd: %v", err)
 	}
 
+	newDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("cd: %v", err)
+	}
+
+	// Update the environment variables
+	os.Setenv("OLDPWD", currentDir)
+	os.Setenv("PWD", newDir)
+
+	// Update the global state
+	gs.UpdateCWD(newDir)
+
+	fmt.Fprintf(cmd.Stdout, "%s\n", newDir)
 	return nil
 }
 
 func pwd(cmd *Command) error {
-	_, err := fmt.Fprintln(cmd.Stdout, cmd.State.CWD)
+	gs := GetGlobalState()
+	_, err := fmt.Fprintln(cmd.Stdout, gs.GetCWD())
 	return err
 }
 
