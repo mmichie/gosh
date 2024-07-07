@@ -26,6 +26,7 @@ func init() {
 	builtins["jobs"] = jobs
 	builtins["fg"] = fg
 	builtins["bg"] = bg
+	builtins["prompt"] = prompt
 }
 
 func cd(cmd *Command) error {
@@ -245,5 +246,26 @@ func Builtins() map[string]func(cmd *Command) error {
 
 func exitShell(cmd *Command) error {
 	os.Exit(0)
+	return nil
+}
+
+func prompt(cmd *Command) error {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
+		currentPrompt := os.Getenv("GOSH_PROMPT")
+		if currentPrompt == "" {
+			currentPrompt = defaultPrompt
+		}
+		fmt.Fprintf(cmd.Stdout, "Current prompt: %s\n", currentPrompt)
+		fmt.Fprintf(cmd.Stdout, "Usage: prompt <new_prompt>\n")
+		fmt.Fprintf(cmd.Stdout, "Available variables: %u (username), %h (hostname), %w (working directory), %W (shortened working directory), %d (date), %t (time), %$ ($ symbol)\n")
+		return nil
+	}
+
+	newPrompt := strings.Join(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1:], " ")
+	err := SetPrompt(newPrompt)
+	if err != nil {
+		return fmt.Errorf("Failed to set new prompt: %v", err)
+	}
+	fmt.Fprintf(cmd.Stdout, "Prompt updated successfully. New prompt: %s\n", expandPromptVariables(newPrompt))
 	return nil
 }

@@ -27,7 +27,7 @@ func main() {
 	completer := gosh.NewCompleter(gosh.Builtins())
 
 	rl, err := readline.NewEx(&readline.Config{
-		Prompt:            "> ",
+		Prompt:            gosh.GetPrompt(),
 		HistoryFile:       "/tmp/gosh_readline_history",
 		InterruptPrompt:   "^C",
 		EOFPrompt:         "exit",
@@ -66,6 +66,7 @@ func main() {
 	fmt.Println("Tab completion is being initialized in the background. It will be fully functional shortly.")
 
 	for {
+		rl.SetPrompt(gosh.GetPrompt()) // Update the prompt before each readline
 		line, err := rl.Readline()
 		if err != nil {
 			if err == readline.ErrInterrupt {
