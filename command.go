@@ -4,23 +4,16 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	"gosh/parser"
 )
 
-// DebugMode controls whether debug output is printed
-var DebugMode bool
-
-// debugPrint prints debug output if DebugMode is true
-func debugPrint(format string, v ...interface{}) {
-	if DebugMode {
-		log.Printf(format, v...)
-	}
+type CommandState struct {
+	CWD         string
+	PreviousDir string
 }
 
 type Command struct {
@@ -33,9 +26,9 @@ type Command struct {
 	Duration   time.Duration
 	TTY        string
 	EUID       int
-	CWD        string
 	ReturnCode int
 	JobManager *JobManager
+	State      *CommandState
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
@@ -43,12 +36,17 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	if err != nil {
 		return nil, err
 	}
+	cwd, _ := os.Getwd()
 	return &Command{
 		Command:    parsedCmd,
 		Stdin:      os.Stdin,
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		JobManager: jobManager,
+		State: &CommandState{
+			CWD:         cwd,
+			PreviousDir: cwd,
+		},
 	}, nil
 }
 
@@ -56,11 +54,6 @@ func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
 	cmd.TTY = os.Getenv("TTY")
 	cmd.EUID = os.Geteuid()
-	cwd, err := os.Getwd()
-	if err != nil {
-		debugPrint("Error getting current working directory: %v", err)
-	}
-	cmd.CWD = cwd
 
 	for _, andCommand := range cmd.AndCommands {
 		success := true
@@ -80,53 +73,58 @@ func (cmd *Command) Run() {
 }
 
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
-	debugPrint("Executing pipeline: %v", pipeline)
 	var cmds []*exec.Cmd
+	var pipes []*io.PipeWriter
+	lastOutput := cmd.Stdin
 
-	// Create commands
 	for i, simpleCmd := range pipeline.Commands {
 		cmdName, args, _, _, _, _ := parser.ProcessCommand(simpleCmd)
-		debugPrint("Command %d: %s %v", i, cmdName, args)
 
-		// Handle quotes in arguments
-		var processedArgs []string
-		for _, arg := range args {
-			if strings.HasPrefix(arg, "'") && strings.HasSuffix(arg, "'") {
-				// Remove surrounding single quotes
-				processedArgs = append(processedArgs, arg[1:len(arg)-1])
-			} else {
-				processedArgs = append(processedArgs, arg)
+		if builtin, ok := builtins[cmdName]; ok {
+			// Handle builtin commands
+			var output bytes.Buffer
+			tmpCmd := &Command{
+				Command: cmd.Command,
+				Stdin:   lastOutput,
+				Stdout:  &output,
+				Stderr:  cmd.Stderr,
+				State:   cmd.State,
 			}
+			err := builtin(tmpCmd)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			lastOutput = &output
+
+			// Write the output of the built-in command to cmd.Stdout
+			if i == len(pipeline.Commands)-1 {
+				io.Copy(cmd.Stdout, &output)
+			}
+		} else {
+			// Handle external commands
+			execCmd := exec.Command(cmdName, args...)
+			execCmd.Dir = cmd.State.CWD
+			execCmd.Stdin = lastOutput
+			execCmd.Stderr = cmd.Stderr
+
+			if i < len(pipeline.Commands)-1 {
+				r, w := io.Pipe()
+				execCmd.Stdout = w
+				lastOutput = r
+				pipes = append(pipes, w)
+			} else {
+				execCmd.Stdout = cmd.Stdout
+			}
+
+			cmds = append(cmds, execCmd)
 		}
-
-		execCmd := exec.Command(cmdName, processedArgs...)
-		cmds = append(cmds, execCmd)
 	}
-
-	// Connect commands with pipes
-	for i := 0; i < len(cmds)-1; i++ {
-		reader, writer := io.Pipe()
-		cmds[i].Stdout = writer
-		cmds[i+1].Stdin = reader
-		debugPrint("Connected pipe between command %d and %d", i, i+1)
-	}
-
-	// Capture the output of the last command
-	var output bytes.Buffer
-	cmds[len(cmds)-1].Stdout = io.MultiWriter(&output, cmd.Stdout)
-
-	// Set stderr for all commands
-	for i, execCmd := range cmds {
-		execCmd.Stderr = cmd.Stderr
-		debugPrint("Set stderr for command %d", i)
-	}
-
 	// Start all commands
-	for i, execCmd := range cmds {
-		debugPrint("Starting command %d: %v", i, execCmd.Args)
+	for _, execCmd := range cmds {
 		err := execCmd.Start()
 		if err != nil {
-			debugPrint("Error starting command %d: %v", i, err)
 			fmt.Fprintf(cmd.Stderr, "Error starting command: %v\n", err)
 			cmd.ReturnCode = 1
 			return false
@@ -135,30 +133,19 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 	// Wait for all commands to complete
 	for i, execCmd := range cmds {
-		debugPrint("Waiting for command %d to complete", i)
 		err := execCmd.Wait()
 		if err != nil {
-			debugPrint("Command %d execution error: %v", i, err)
-			fmt.Fprintf(cmd.Stderr, "%s: %v\n", execCmd.Path, err)
+			fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
 			cmd.ReturnCode = 1
-			if i == len(cmds)-1 {
-				return false
-			}
+			return false
 		}
-		debugPrint("Command %d completed", i)
 		if i < len(cmds)-1 {
-			cmds[i].Stdout.(io.WriteCloser).Close()
+			pipes[i].Close()
 		}
 	}
 
-	debugPrint("Pipeline execution completed")
-	debugPrint("Captured output: %s", output.String())
-
-	if len(cmds) > 0 {
-		cmd.ReturnCode = cmds[len(cmds)-1].ProcessState.ExitCode()
-	}
-	debugPrint("Pipeline return code: %d", cmd.ReturnCode)
-	return cmd.ReturnCode == 0
+	cmd.ReturnCode = 0
+	return true
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {

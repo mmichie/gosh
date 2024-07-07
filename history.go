@@ -75,10 +75,10 @@ func (h *HistoryManager) Insert(cmd *Command, sessionID int) error {
 
 	if argsColumnExists {
 		insertSQL = `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, args, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		args = []interface{}{sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), fullCommand, "", cmd.ReturnCode}
+		args = []interface{}{sessionID, cmd.TTY, cmd.EUID, cmd.State.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), fullCommand, "", cmd.ReturnCode}
 	} else {
 		insertSQL = `INSERT INTO command (session_id, tty, euid, cwd, start_time, end_time, duration, command, return_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		args = []interface{}{sessionID, cmd.TTY, cmd.EUID, cmd.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), fullCommand, cmd.ReturnCode}
+		args = []interface{}{sessionID, cmd.TTY, cmd.EUID, cmd.State.CWD, cmd.StartTime.Unix(), cmd.EndTime.Unix(), int(cmd.Duration.Seconds()), fullCommand, cmd.ReturnCode}
 	}
 
 	_, err = h.db.Exec(insertSQL, args...)
