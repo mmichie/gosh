@@ -71,55 +71,50 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	for i, simpleCmd := range pipeline.Commands {
 		cmdString := strings.Join(simpleCmd.Parts, " ")
 
-		// Evaluate any Lisp expressions within the command
-		evaluatedCmd, err := evaluateLispInCommand(cmdString)
-		if err != nil {
-			fmt.Fprintf(cmd.Stderr, "Lisp error: %v\n", err)
-			cmd.ReturnCode = 1
-			return false
-		}
-
-		// If the entire command was a Lisp expression, we're done
-		if isLispExpression(cmdString) {
+		// Check if the command is a Lisp expression
+		if IsLispExpression(cmdString) {
+			result, err := ExecuteGoshLisp(cmdString)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Lisp error in '%s': %v\n", cmdString, err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			output := fmt.Sprintf("%v\n", result)
 			if i < len(pipeline.Commands)-1 {
-				lastOutput = strings.NewReader(evaluatedCmd)
+				lastOutput = strings.NewReader(output)
 			} else {
-				fmt.Fprintln(cmd.Stdout, evaluatedCmd)
+				fmt.Fprint(cmd.Stdout, output)
 			}
 			continue
 		}
 
-		// Split the evaluated command into parts
-		cmdParts := strings.Fields(evaluatedCmd)
-		if len(cmdParts) == 0 {
-			continue
+		// Evaluate any embedded Lisp expressions
+		evaluatedCmd, err := evaluateLispInCommand(cmdString)
+		if err != nil {
+			fmt.Fprintf(cmd.Stderr, "Lisp error in '%s': %v\n", cmdString, err)
+			cmd.ReturnCode = 1
+			return false
 		}
 
-		cmdName := cmdParts[0]
-		args := cmdParts[1:]
+		// Re-parse the command after Lisp evaluation
+		parsedCmd, err := parser.Parse(evaluatedCmd)
+		if err != nil {
+			fmt.Fprintf(cmd.Stderr, "Parse error: %v\n", err)
+			cmd.ReturnCode = 1
+			return false
+		}
+		simpleCmd = parsedCmd.AndCommands[0].Pipelines[0].Commands[0]
+
+		cmdName, args, _, _, _, _ := parser.ProcessCommand(simpleCmd)
 
 		if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands
 			var output bytes.Buffer
 			tmpCmd := &Command{
-				Command: &parser.Command{
-					AndCommands: []*parser.AndCommand{
-						{
-							Pipelines: []*parser.Pipeline{
-								{
-									Commands: []*parser.SimpleCommand{
-										{
-											Parts: cmdParts,
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-				Stdin:  lastOutput,
-				Stdout: &output,
-				Stderr: cmd.Stderr,
+				Command: cmd.Command,
+				Stdin:   lastOutput,
+				Stdout:  &output,
+				Stderr:  cmd.Stderr,
 			}
 			err := builtin(tmpCmd)
 			if err != nil {
@@ -181,20 +176,21 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	return true
 }
 
-func isLispExpression(cmdString string) bool {
-	trimmed := strings.TrimSpace(cmdString)
-	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")
-}
-
 func evaluateLispInCommand(cmdString string) (string, error) {
-	re := regexp.MustCompile(`\(([^()]+)\)`)
-	return re.ReplaceAllStringFunc(cmdString, func(match string) string {
-		result, err := ExecuteGoshLisp(match)
-		if err != nil {
-			return fmt.Sprintf("Error: %v", err)
+	re := regexp.MustCompile(`\((.*?)\)`)
+	var lastErr error
+	result := re.ReplaceAllStringFunc(cmdString, func(match string) string {
+		if IsLispExpression(match) {
+			result, err := ExecuteGoshLisp(match)
+			if err != nil {
+				lastErr = fmt.Errorf("in '%s': %v", match, err)
+				return match // Keep the original expression if there's an error
+			}
+			return fmt.Sprintf("%v", result)
 		}
-		return fmt.Sprintf("%v", result)
-	}), nil
+		return match
+	})
+	return result, lastErr
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {

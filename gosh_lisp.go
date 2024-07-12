@@ -128,34 +128,152 @@ func Evaluate(node Node) (interface{}, error) {
 func EvaluateFunction(operator string, args []interface{}) (interface{}, error) {
 	switch operator {
 	case "+":
-		result := 0.0
-		for _, arg := range args {
-			num, ok := arg.(float64)
-			if !ok {
-				return nil, fmt.Errorf("'+' operator expects numbers")
-			}
-			result += num
-		}
-		return result, nil
+		return add(args)
 	case "-":
-		if len(args) == 0 {
-			return nil, fmt.Errorf("'-' operator expects at least one argument")
-		}
-		result, ok := args[0].(float64)
-		if !ok {
-			return nil, fmt.Errorf("'-' operator expects numbers")
-		}
-		for _, arg := range args[1:] {
-			num, ok := arg.(float64)
-			if !ok {
-				return nil, fmt.Errorf("'-' operator expects numbers")
-			}
-			result -= num
-		}
-		return result, nil
-	// Add more operators as needed
+		return subtract(args)
+	case "*":
+		return multiply(args)
+	case "/":
+		return divide(args)
+	case "=":
+		return equal(args)
+	case "<":
+		return lessThan(args)
+	case ">":
+		return greaterThan(args)
+	case "<=":
+		return lessThanOrEqual(args)
+	case ">=":
+		return greaterThanOrEqual(args)
 	default:
 		return nil, fmt.Errorf("unknown operator: %s", operator)
+	}
+}
+
+func add(args []interface{}) (float64, error) {
+	result := 0.0
+	for _, arg := range args {
+		num, err := toFloat64(arg)
+		if err != nil {
+			return 0, err
+		}
+		result += num
+	}
+	return result, nil
+}
+
+func subtract(args []interface{}) (float64, error) {
+	if len(args) == 0 {
+		return 0, fmt.Errorf("'-' operator expects at least one argument")
+	}
+	result, err := toFloat64(args[0])
+	if err != nil {
+		return 0, err
+	}
+	if len(args) == 1 {
+		return -result, nil
+	}
+	for _, arg := range args[1:] {
+		num, err := toFloat64(arg)
+		if err != nil {
+			return 0, err
+		}
+		result -= num
+	}
+	return result, nil
+}
+
+func multiply(args []interface{}) (float64, error) {
+	result := 1.0
+	for _, arg := range args {
+		num, err := toFloat64(arg)
+		if err != nil {
+			return 0, err
+		}
+		result *= num
+	}
+	return result, nil
+}
+
+func divide(args []interface{}) (float64, error) {
+	if len(args) < 2 {
+		return 0, fmt.Errorf("'/' operator expects at least two arguments")
+	}
+	result, err := toFloat64(args[0])
+	if err != nil {
+		return 0, err
+	}
+	for i, arg := range args[1:] {
+		num, err := toFloat64(arg)
+		if err != nil {
+			return 0, err
+		}
+		if num == 0 {
+			return 0, fmt.Errorf("division by zero (at argument %d)", i+2)
+		}
+		result /= num
+	}
+	return result, nil
+}
+
+func equal(args []interface{}) (interface{}, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("'=' operator expects at least two arguments")
+	}
+	first := args[0]
+	for _, arg := range args[1:] {
+		if arg != first {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func lessThan(args []interface{}) (interface{}, error) {
+	return compareNumbers(args, func(a, b float64) bool { return a < b })
+}
+
+func greaterThan(args []interface{}) (interface{}, error) {
+	return compareNumbers(args, func(a, b float64) bool { return a > b })
+}
+
+func lessThanOrEqual(args []interface{}) (interface{}, error) {
+	return compareNumbers(args, func(a, b float64) bool { return a <= b })
+}
+
+func greaterThanOrEqual(args []interface{}) (interface{}, error) {
+	return compareNumbers(args, func(a, b float64) bool { return a >= b })
+}
+
+func compareNumbers(args []interface{}, compare func(float64, float64) bool) (interface{}, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("comparison operator expects at least two arguments")
+	}
+	prev, err := toFloat64(args[0])
+	if err != nil {
+		return nil, err
+	}
+	for _, arg := range args[1:] {
+		curr, err := toFloat64(arg)
+		if err != nil {
+			return nil, err
+		}
+		if !compare(prev, curr) {
+			return false, nil
+		}
+		prev = curr
+	}
+	return true, nil
+}
+
+func toFloat64(v interface{}) (float64, error) {
+	switch v := v.(type) {
+	case float64:
+		return v, nil
+	case int:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("cannot convert %v to float64", v)
 	}
 }
 
@@ -167,4 +285,10 @@ func ExecuteGoshLisp(input string) (interface{}, error) {
 		return nil, err
 	}
 	return Evaluate(ast)
+}
+
+// IsLispExpression checks if a given string is a Lisp expression
+func IsLispExpression(cmdString string) bool {
+	trimmed := strings.TrimSpace(cmdString)
+	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")
 }

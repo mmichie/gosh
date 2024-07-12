@@ -275,7 +275,6 @@ func goshLisp(cmd *Command) error {
 		return fmt.Errorf("Usage: gosh-lisp <expression>")
 	}
 
-	// Join all parts of the command to get the full expression
 	expression := strings.Join(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1:], " ")
 	result, err := ExecuteGoshLisp(expression)
 	if err != nil {
