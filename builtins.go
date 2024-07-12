@@ -27,6 +27,7 @@ func init() {
 	builtins["fg"] = fg
 	builtins["bg"] = bg
 	builtins["prompt"] = prompt
+	builtins["gosh-lisp"] = goshLisp
 }
 
 func cd(cmd *Command) error {
@@ -267,4 +268,20 @@ func prompt(cmd *Command) error {
 	}
 	fmt.Fprintf(cmd.Stdout, "Prompt updated successfully. New prompt: %s\n", expandPromptVariables(newPrompt))
 	return nil
+}
+
+func goshLisp(cmd *Command) error {
+	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
+		return fmt.Errorf("Usage: gosh-lisp <expression>")
+	}
+
+	// Join all parts of the command to get the full expression
+	expression := strings.Join(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1:], " ")
+	result, err := ExecuteGoshLisp(expression)
+	if err != nil {
+		return fmt.Errorf("Gosh Lisp error: %v", err)
+	}
+
+	_, err = fmt.Fprintf(cmd.Stdout, "%v\n", result)
+	return err
 }
