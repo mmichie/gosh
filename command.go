@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
+	"strings"
 	"time"
 
 	"gosh/parser"
@@ -67,16 +69,57 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	lastOutput := cmd.Stdin
 
 	for i, simpleCmd := range pipeline.Commands {
-		cmdName, args, _, _, _, _ := parser.ProcessCommand(simpleCmd)
+		cmdString := strings.Join(simpleCmd.Parts, " ")
+
+		// Evaluate any Lisp expressions within the command
+		evaluatedCmd, err := evaluateLispInCommand(cmdString)
+		if err != nil {
+			fmt.Fprintf(cmd.Stderr, "Lisp error: %v\n", err)
+			cmd.ReturnCode = 1
+			return false
+		}
+
+		// If the entire command was a Lisp expression, we're done
+		if isLispExpression(cmdString) {
+			if i < len(pipeline.Commands)-1 {
+				lastOutput = strings.NewReader(evaluatedCmd)
+			} else {
+				fmt.Fprintln(cmd.Stdout, evaluatedCmd)
+			}
+			continue
+		}
+
+		// Split the evaluated command into parts
+		cmdParts := strings.Fields(evaluatedCmd)
+		if len(cmdParts) == 0 {
+			continue
+		}
+
+		cmdName := cmdParts[0]
+		args := cmdParts[1:]
 
 		if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands
 			var output bytes.Buffer
 			tmpCmd := &Command{
-				Command: cmd.Command,
-				Stdin:   lastOutput,
-				Stdout:  &output,
-				Stderr:  cmd.Stderr,
+				Command: &parser.Command{
+					AndCommands: []*parser.AndCommand{
+						{
+							Pipelines: []*parser.Pipeline{
+								{
+									Commands: []*parser.SimpleCommand{
+										{
+											Parts: cmdParts,
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				Stdin:  lastOutput,
+				Stdout: &output,
+				Stderr: cmd.Stderr,
 			}
 			err := builtin(tmpCmd)
 			if err != nil {
@@ -136,6 +179,22 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 	cmd.ReturnCode = 0
 	return true
+}
+
+func isLispExpression(cmdString string) bool {
+	trimmed := strings.TrimSpace(cmdString)
+	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")
+}
+
+func evaluateLispInCommand(cmdString string) (string, error) {
+	re := regexp.MustCompile(`\(([^()]+)\)`)
+	return re.ReplaceAllStringFunc(cmdString, func(match string) string {
+		result, err := ExecuteGoshLisp(match)
+		if err != nil {
+			return fmt.Sprintf("Error: %v", err)
+		}
+		return fmt.Sprintf("%v", result)
+	}), nil
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {
