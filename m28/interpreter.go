@@ -172,18 +172,28 @@ func parseMultiple(tokens *[]string) ([]LispValue, error) {
 	return expressions, nil
 }
 
+// Updated tokenize function to handle escaped quotes in strings
 func tokenize(input string) []string {
 	var tokens []string
 	var currentToken strings.Builder
 	inString := false
+	escaped := false
 
 	for _, char := range input {
 		if inString {
-			currentToken.WriteRune(char)
-			if char == '"' {
+			if escaped {
+				currentToken.WriteRune(char)
+				escaped = false
+			} else if char == '\\' {
+				escaped = true
+				currentToken.WriteRune(char)
+			} else if char == '"' {
+				currentToken.WriteRune(char)
 				tokens = append(tokens, currentToken.String())
 				currentToken.Reset()
 				inString = false
+			} else {
+				currentToken.WriteRune(char)
 			}
 		} else if char == '"' {
 			if currentToken.Len() > 0 {
@@ -253,7 +263,11 @@ func parseTokens(tokens *[]string) (LispValue, error) {
 func parseAtom(token string) (LispValue, error) {
 	// Check if it's a string literal
 	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
-		return token[1 : len(token)-1], nil
+		unquoted, err := strconv.Unquote(token)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing string literal: %v", err)
+		}
+		return unquoted, nil
 	}
 
 	// Check if it's a number
@@ -264,6 +278,7 @@ func parseAtom(token string) (LispValue, error) {
 	// If it's not a string or number, it's a symbol
 	return LispSymbol(token), nil
 }
+
 func EvalExpression(expr LispValue, env *Environment) (LispValue, error) {
 	switch e := expr.(type) {
 	case LispSymbol:
