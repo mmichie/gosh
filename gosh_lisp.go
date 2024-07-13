@@ -165,6 +165,21 @@ func Eval(expr LispValue, env *Environment) (LispValue, error) {
 					}
 				}
 				return lastVal, nil
+			case "cond":
+				for i := 1; i < len(e); i++ {
+					condition, ok := e[i].(LispList)
+					if !ok || len(condition) != 2 {
+						return nil, fmt.Errorf("malformed cond clause")
+					}
+					result, err := Eval(condition[0], env)
+					if err != nil {
+						return nil, err
+					}
+					if isTruthy(result) {
+						return Eval(condition[1], env)
+					}
+				}
+				return nil, fmt.Errorf("no cond clause evaluated to true")
 			}
 		}
 
