@@ -6,70 +6,68 @@ import (
 	"strings"
 )
 
-func add(args []LispValue, _ *Environment) (LispValue, error) {
-	result := 0.0
-	for _, arg := range args {
+// arithmeticHelper handles the common logic for arithmetic operations
+func arithmeticHelper(args []LispValue, op string) (float64, error) {
+	if len(args) == 0 {
+		return 0, fmt.Errorf("'%s' expects at least one argument", op)
+	}
+
+	var result float64
+	switch op {
+	case "+":
+		result = 0.0
+	case "-":
+		result = args[0].(float64) // Start with the first argument
+	case "*":
+		result = 1.0
+	case "/":
+		result = args[0].(float64) // Start with the first argument
+	}
+
+	for i, arg := range args {
 		num, ok := arg.(float64)
 		if !ok {
-			return nil, fmt.Errorf("'+' expects numbers, got %T", arg)
+			return 0, fmt.Errorf("'%s' expects numbers, got %T", op, arg)
 		}
-		result += num
+
+		switch op {
+		case "+":
+			result += num
+		case "-":
+			if i == 0 {
+				continue // Skip the first element as it's already assigned
+			}
+			result -= num
+		case "*":
+			result *= num
+		case "/":
+			if i == 0 {
+				continue // Skip the first element as it's already assigned
+			}
+			if num == 0 {
+				return 0, fmt.Errorf("division by zero")
+			}
+			result /= num
+		}
 	}
+
 	return result, nil
+}
+
+func add(args []LispValue, _ *Environment) (LispValue, error) {
+	return arithmeticHelper(args, "+")
 }
 
 func subtract(args []LispValue, _ *Environment) (LispValue, error) {
-	if len(args) == 0 {
-		return nil, fmt.Errorf("'-' expects at least one argument")
-	}
-	first, ok := args[0].(float64)
-	if !ok {
-		return nil, fmt.Errorf("'-' expects numbers, got %T", args[0])
-	}
-	if len(args) == 1 {
-		return -first, nil
-	}
-	for _, arg := range args[1:] {
-		num, ok := arg.(float64)
-		if !ok {
-			return nil, fmt.Errorf("'-' expects numbers, got %T", arg)
-		}
-		first -= num
-	}
-	return first, nil
+	return arithmeticHelper(args, "-")
 }
 
 func multiply(args []LispValue, _ *Environment) (LispValue, error) {
-	result := 1.0
-	for _, arg := range args {
-		num, ok := arg.(float64)
-		if !ok {
-			return nil, fmt.Errorf("'*' expects numbers, got %T", arg)
-		}
-		result *= num
-	}
-	return result, nil
+	return arithmeticHelper(args, "*")
 }
 
 func divide(args []LispValue, _ *Environment) (LispValue, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("'/' expects at least two arguments")
-	}
-	first, ok := args[0].(float64)
-	if !ok {
-		return nil, fmt.Errorf("'/' expects numbers, got %T", args[0])
-	}
-	for _, arg := range args[1:] {
-		num, ok := arg.(float64)
-		if !ok {
-			return nil, fmt.Errorf("'/' expects numbers, got %T", arg)
-		}
-		if num == 0 {
-			return nil, fmt.Errorf("division by zero")
-		}
-		first /= num
-	}
-	return first, nil
+	return arithmeticHelper(args, "/")
 }
 
 func lessThan(args []LispValue, _ *Environment) (LispValue, error) {
