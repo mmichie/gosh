@@ -133,6 +133,38 @@ func Eval(expr LispValue, env *Environment) (LispValue, error) {
 				return evalIf(e, env)
 			case "lambda":
 				return evalLambda(e, env)
+			case "quote":
+				if len(e) != 2 {
+					return nil, fmt.Errorf("'quote' expects exactly one argument")
+				}
+				return e[1], nil
+			case "set!":
+				if len(e) != 3 {
+					return nil, fmt.Errorf("'set!' expects exactly two arguments")
+				}
+				symbol, ok := e[1].(LispSymbol)
+				if !ok {
+					return nil, fmt.Errorf("first argument to 'set!' must be a symbol")
+				}
+				value, err := Eval(e[2], env)
+				if err != nil {
+					return nil, err
+				}
+				if _, ok := env.Get(symbol); !ok {
+					return nil, fmt.Errorf("undefined symbol: %s", symbol)
+				}
+				env.Set(symbol, value)
+				return value, nil
+			case "begin":
+				var lastVal LispValue
+				for _, expr := range e[1:] {
+					var err error
+					lastVal, err = Eval(expr, env)
+					if err != nil {
+						return nil, err
+					}
+				}
+				return lastVal, nil
 			}
 		}
 
