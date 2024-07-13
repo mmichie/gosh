@@ -2,6 +2,7 @@ package m28
 
 import (
 	"fmt"
+	"strings"
 )
 
 func add(args []LispValue, _ *Environment) (LispValue, error) {
@@ -98,7 +99,7 @@ func loop(args []LispValue, env *Environment) (LispValue, error) {
 	for {
 		var err error
 		for _, arg := range args {
-			_, err = eval(arg, env)
+			_, err = EvalExpression(arg, env)
 			if err != nil {
 				return nil, err
 			}
@@ -130,7 +131,7 @@ func do(args []LispValue, env *Environment) (LispValue, error) {
 		if !ok {
 			return nil, fmt.Errorf("binding variable must be a symbol")
 		}
-		initValue, err := eval(bindingList[1], localEnv)
+		initValue, err := EvalExpression(bindingList[1], localEnv)
 		if err != nil {
 			return nil, err
 		}
@@ -146,15 +147,15 @@ func do(args []LispValue, env *Environment) (LispValue, error) {
 	// Main loop
 	for {
 		// Check end condition
-		endResult, err := eval(endTest[0], localEnv)
+		endResult, err := EvalExpression(endTest[0], localEnv)
 		if err != nil {
 			return nil, err
 		}
-		if isTruthy(endResult) {
+		if IsTruthy(endResult) {
 			// Execute result forms and return
 			var result LispValue
 			for _, resultForm := range endTest[1:] {
-				result, err = eval(resultForm, localEnv)
+				result, err = EvalExpression(resultForm, localEnv)
 				if err != nil {
 					return nil, err
 				}
@@ -164,7 +165,7 @@ func do(args []LispValue, env *Environment) (LispValue, error) {
 
 		// Execute body
 		for _, bodyForm := range args[2:] {
-			_, err := eval(bodyForm, localEnv)
+			_, err := EvalExpression(bodyForm, localEnv)
 			if err != nil {
 				return nil, err
 			}
@@ -175,7 +176,7 @@ func do(args []LispValue, env *Environment) (LispValue, error) {
 			bindingList := binding.(LispList)
 			symbol := bindingList[0].(LispSymbol)
 			if len(bindingList) > 2 {
-				newValue, err := eval(bindingList[2], localEnv)
+				newValue, err := EvalExpression(bindingList[2], localEnv)
 				if err != nil {
 					return nil, err
 				}
@@ -189,14 +190,14 @@ func when(args []LispValue, env *Environment) (LispValue, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("'when' expects at least two arguments")
 	}
-	condition, err := eval(args[0], env)
+	condition, err := EvalExpression(args[0], env)
 	if err != nil {
 		return nil, err
 	}
-	if isTruthy(condition) {
+	if IsTruthy(condition) {
 		var result LispValue
 		for _, arg := range args[1:] {
-			result, err = eval(arg, env)
+			result, err = EvalExpression(arg, env)
 			if err != nil {
 				return nil, err
 			}
@@ -210,14 +211,14 @@ func unless(args []LispValue, env *Environment) (LispValue, error) {
 	if len(args) < 2 {
 		return nil, fmt.Errorf("'unless' expects at least two arguments")
 	}
-	condition, err := eval(args[0], env)
+	condition, err := EvalExpression(args[0], env)
 	if err != nil {
 		return nil, err
 	}
-	if !isTruthy(condition) {
+	if !IsTruthy(condition) {
 		var result LispValue
 		for _, arg := range args[1:] {
-			result, err = eval(arg, env)
+			result, err = EvalExpression(arg, env)
 			if err != nil {
 				return nil, err
 			}
@@ -225,4 +226,27 @@ func unless(args []LispValue, env *Environment) (LispValue, error) {
 		return result, nil
 	}
 	return nil, nil
+}
+
+func printFunc(args []LispValue, _ *Environment) (LispValue, error) {
+	for _, arg := range args {
+		fmt.Print(PrintValue(arg), " ")
+	}
+	fmt.Println()
+	return nil, nil
+}
+
+func stringAppend(args []LispValue, _ *Environment) (LispValue, error) {
+	var parts []string
+	for _, arg := range args {
+		switch v := arg.(type) {
+		case string:
+			parts = append(parts, v)
+		case LispSymbol:
+			parts = append(parts, string(v))
+		default:
+			parts = append(parts, fmt.Sprint(v))
+		}
+	}
+	return strings.Join(parts, ""), nil
 }

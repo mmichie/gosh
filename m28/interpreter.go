@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // NewInterpreter creates a new M28 Lisp interpreter
@@ -19,7 +20,7 @@ func NewInterpreter() *Interpreter {
 func (i *Interpreter) Eval(expr LispValue) (LispValue, error) {
 	i.envMutex.RLock()
 	defer i.envMutex.RUnlock()
-	return eval(expr, i.globalEnv)
+	return EvalExpression(expr, i.globalEnv)
 }
 
 // SetupGlobalEnvironment creates and populates the global environment
@@ -38,6 +39,8 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol("do"), LispFunc(do))
 	env.Set(LispSymbol("when"), LispFunc(when))
 	env.Set(LispSymbol("unless"), LispFunc(unless))
+	env.Set(LispSymbol("print"), LispFunc(printFunc))
+	env.Set(LispSymbol("string-append"), LispFunc(stringAppend))
 
 	return env
 }
@@ -102,9 +105,46 @@ func parse(input string) (LispValue, error) {
 }
 
 func tokenize(input string) []string {
-	input = strings.ReplaceAll(input, "(", " ( ")
-	input = strings.ReplaceAll(input, ")", " ) ")
-	return strings.Fields(input)
+	var tokens []string
+	var currentToken strings.Builder
+	inString := false
+
+	for _, char := range input {
+		if inString {
+			currentToken.WriteRune(char)
+			if char == '"' {
+				tokens = append(tokens, currentToken.String())
+				currentToken.Reset()
+				inString = false
+			}
+		} else if char == '"' {
+			if currentToken.Len() > 0 {
+				tokens = append(tokens, currentToken.String())
+				currentToken.Reset()
+			}
+			currentToken.WriteRune(char)
+			inString = true
+		} else if unicode.IsSpace(char) {
+			if currentToken.Len() > 0 {
+				tokens = append(tokens, currentToken.String())
+				currentToken.Reset()
+			}
+		} else if char == '(' || char == ')' {
+			if currentToken.Len() > 0 {
+				tokens = append(tokens, currentToken.String())
+				currentToken.Reset()
+			}
+			tokens = append(tokens, string(char))
+		} else {
+			currentToken.WriteRune(char)
+		}
+	}
+
+	if currentToken.Len() > 0 {
+		tokens = append(tokens, currentToken.String())
+	}
+
+	return tokens
 }
 
 func parseTokens(tokens *[]string) (LispValue, error) {
@@ -137,13 +177,21 @@ func parseTokens(tokens *[]string) (LispValue, error) {
 }
 
 func parseAtom(token string) (LispValue, error) {
+	// Check if it's a string literal
+	if strings.HasPrefix(token, "\"") && strings.HasSuffix(token, "\"") {
+		return token[1 : len(token)-1], nil
+	}
+
+	// Check if it's a number
 	if num, err := strconv.ParseFloat(token, 64); err == nil {
 		return num, nil
 	}
+
+	// If it's not a string or number, it's a symbol
 	return LispSymbol(token), nil
 }
 
-func eval(expr LispValue, env *Environment) (LispValue, error) {
+func EvalExpression(expr LispValue, env *Environment) (LispValue, error) {
 	switch e := expr.(type) {
 	case LispSymbol:
 		value, ok := env.Get(e)
@@ -152,6 +200,8 @@ func eval(expr LispValue, env *Environment) (LispValue, error) {
 		}
 		return value, nil
 	case float64:
+		return e, nil
+	case string:
 		return e, nil
 	case LispList:
 		if len(e) == 0 {
@@ -179,14 +229,14 @@ func eval(expr LispValue, env *Environment) (LispValue, error) {
 		}
 
 		// Function application
-		fn, err := eval(first, env)
+		fn, err := EvalExpression(first, env)
 		if err != nil {
 			return nil, err
 		}
 
 		args := make([]LispValue, len(e)-1)
 		for i, arg := range e[1:] {
-			if args[i], err = eval(arg, env); err != nil {
+			if args[i], err = EvalExpression(arg, env); err != nil {
 				return nil, err
 			}
 		}
@@ -208,14 +258,14 @@ func evalIf(list LispList, env *Environment) (LispValue, error) {
 	if len(list) != 4 {
 		return nil, fmt.Errorf("'if' expects exactly three arguments")
 	}
-	condition, err := eval(list[1], env)
+	condition, err := EvalExpression(list[1], env)
 	if err != nil {
 		return nil, err
 	}
-	if isTruthy(condition) {
-		return eval(list[2], env)
+	if IsTruthy(condition) {
+		return EvalExpression(list[2], env)
 	}
-	return eval(list[3], env)
+	return EvalExpression(list[3], env)
 }
 
 func evalDefine(list LispList, env *Environment) (LispValue, error) {
@@ -226,7 +276,7 @@ func evalDefine(list LispList, env *Environment) (LispValue, error) {
 	if !ok {
 		return nil, fmt.Errorf("first argument to 'define' must be a symbol")
 	}
-	value, err := eval(list[2], env)
+	value, err := EvalExpression(list[2], env)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +317,7 @@ func callLambda(lambda *Lambda, args []LispValue, env *Environment) (LispValue, 
 		localEnv.Set(param, args[i])
 	}
 
-	return eval(lambda.Body, localEnv)
+	return EvalExpression(lambda.Body, localEnv)
 }
 
 func evalBegin(list LispList, env *Environment) (LispValue, error) {
@@ -277,7 +327,7 @@ func evalBegin(list LispList, env *Environment) (LispValue, error) {
 	var result LispValue
 	var err error
 	for _, form := range list[1:] {
-		result, err = eval(form, env)
+		result, err = EvalExpression(form, env)
 		if err != nil {
 			return nil, err
 		}
@@ -285,7 +335,7 @@ func evalBegin(list LispList, env *Environment) (LispValue, error) {
 	return result, nil
 }
 
-func isTruthy(v LispValue) bool {
+func IsTruthy(v LispValue) bool {
 	switch v := v.(type) {
 	case bool:
 		return v

@@ -69,6 +69,8 @@ func PrintValue(val LispValue) string {
 		return string(v)
 	case float64:
 		return fmt.Sprintf("%g", v)
+	case string:
+		return fmt.Sprintf("%q", v)
 	case LispList:
 		elements := make([]string, len(v))
 		for i, elem := range v {
