@@ -28,6 +28,7 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol("<"), LispFunc(lessThan))
 	env.Set(LispSymbol(">"), LispFunc(greaterThan))
 	env.Set(LispSymbol("="), LispFunc(equals))
+	env.Set(LispSymbol("nil"), nil)
 
 	// Add control structures
 	env.Set(LispSymbol("if"), LispFunc(ifFunc))
@@ -406,6 +407,8 @@ func evalBegin(list LispList, env *Environment) (LispValue, error) {
 
 func IsTruthy(v LispValue) bool {
 	switch v := v.(type) {
+	case nil:
+		return false
 	case bool:
 		return v
 	case float64:

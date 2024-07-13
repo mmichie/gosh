@@ -6,5 +6,6 @@
 
 (print "Fibonacci sequence up to 10:")
 (do ((i 0 (+ i 1)))
-    ((> i 10) 'done)
+    ((> i 10) nil)
   (print (fib i)))
+
