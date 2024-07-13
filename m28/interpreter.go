@@ -2,6 +2,8 @@ package m28
 
 import (
 	"fmt"
+	"io/ioutil"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -56,6 +58,36 @@ func (i *Interpreter) Execute(input string) (string, error) {
 		return "", err
 	}
 	return PrintValue(result), nil
+}
+
+// ExecuteFile reads and executes M28 Lisp code from a file
+func (i *Interpreter) ExecuteFile(filename string) error {
+	// Check if the file has the .m28 extension
+	if filepath.Ext(filename) != ".m28" {
+		return fmt.Errorf("file must have .m28 extension")
+	}
+
+	// Read the file contents
+	content, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("error reading file: %v", err)
+	}
+
+	// Execute each expression in the file
+	expressions := strings.Split(string(content), "\n")
+	for _, expr := range expressions {
+		expr = strings.TrimSpace(expr)
+		if expr == "" || strings.HasPrefix(expr, ";") {
+			continue // Skip empty lines and comments
+		}
+		result, err := i.Execute(expr)
+		if err != nil {
+			return fmt.Errorf("error executing expression '%s': %v", expr, err)
+		}
+		fmt.Println("=>", result)
+	}
+
+	return nil
 }
 
 // IsLispExpression checks if a given string is a Lisp expression
