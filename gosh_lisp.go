@@ -19,6 +19,13 @@ type LispList []LispValue
 // LispFunc represents a Lisp function
 type LispFunc func([]LispValue, *Environment) (LispValue, error)
 
+// Lambda represents a lambda function
+type Lambda struct {
+	Params []LispSymbol
+	Body   LispValue
+	Env    *Environment
+}
+
 // Environment represents a Lisp environment
 type Environment struct {
 	vars  map[LispSymbol]LispValue
@@ -116,23 +123,30 @@ func Eval(expr LispValue, env *Environment) (LispValue, error) {
 			return nil, fmt.Errorf("empty list")
 		}
 		first := e[0]
-		if symbol, ok := first.(LispSymbol); ok && symbol == "define" {
-			return evalDefine(e, env)
+
+		// Handle special forms
+		if symbol, ok := first.(LispSymbol); ok {
+			switch symbol {
+			case "define":
+				return evalDefine(e, env)
+			case "if":
+				return evalIf(e, env)
+			case "lambda":
+				return evalLambda(e, env)
+			}
 		}
-		first, err := Eval(first, env)
+
+		// Evaluate the first element
+		fn, err := Eval(first, env)
 		if err != nil {
 			return nil, err
 		}
-		switch fn := first.(type) {
+
+		switch fn := fn.(type) {
 		case LispFunc:
-			args := make([]LispValue, len(e)-1)
-			for i, arg := range e[1:] {
-				args[i], err = Eval(arg, env)
-				if err != nil {
-					return nil, err
-				}
-			}
-			return fn(args, env)
+			return fn(e[1:], env)
+		case *Lambda:
+			return callLambda(fn, e[1:], env)
 		default:
 			return nil, fmt.Errorf("not a function: %v", fn)
 		}
@@ -157,6 +171,75 @@ func evalDefine(list LispList, env *Environment) (LispValue, error) {
 	return value, nil
 }
 
+func evalIf(list LispList, env *Environment) (LispValue, error) {
+	if len(list) != 4 {
+		return nil, fmt.Errorf("'if' expects exactly three arguments")
+	}
+	condition, err := Eval(list[1], env)
+	if err != nil {
+		return nil, err
+	}
+	if isTruthy(condition) {
+		return Eval(list[2], env)
+	}
+	return Eval(list[3], env)
+}
+
+func isTruthy(v LispValue) bool {
+	switch v := v.(type) {
+	case bool:
+		return v
+	case float64:
+		return v != 0
+	case string:
+		return v != ""
+	case LispList:
+		return len(v) > 0
+	default:
+		return true
+	}
+}
+
+func evalLambda(list LispList, env *Environment) (LispValue, error) {
+	if len(list) != 3 {
+		return nil, fmt.Errorf("'lambda' expects exactly two arguments")
+	}
+	params, ok := list[1].(LispList)
+	if !ok {
+		return nil, fmt.Errorf("lambda parameters must be a list")
+	}
+	var paramSymbols []LispSymbol
+	for _, param := range params {
+		symbol, ok := param.(LispSymbol)
+		if !ok {
+			return nil, fmt.Errorf("lambda parameter must be a symbol")
+		}
+		paramSymbols = append(paramSymbols, symbol)
+	}
+	return &Lambda{
+		Params: paramSymbols,
+		Body:   list[2],
+		Env:    env,
+	}, nil
+}
+
+func callLambda(lambda *Lambda, args []LispValue, env *Environment) (LispValue, error) {
+	if len(args) != len(lambda.Params) {
+		return nil, fmt.Errorf("lambda called with wrong number of arguments")
+	}
+
+	localEnv := NewEnvironment(lambda.Env)
+	for i, param := range lambda.Params {
+		value, err := Eval(args[i], env)
+		if err != nil {
+			return nil, err
+		}
+		localEnv.Set(param, value)
+	}
+
+	return Eval(lambda.Body, localEnv)
+}
+
 // InitGlobalEnvironment initializes the global Lisp environment
 func InitGlobalEnvironment() {
 	envMutex.Lock()
@@ -177,86 +260,116 @@ func GetGlobalEnvironment() *Environment {
 func SetupGlobalEnvironment() *Environment {
 	env := NewEnvironment(nil)
 
-	env.Set(LispSymbol("+"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+	env.Set(LispSymbol("+"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		result := 0.0
 		for _, arg := range args {
-			num, ok := arg.(float64)
+			evaluated, err := Eval(arg, env)
+			if err != nil {
+				return nil, err
+			}
+			num, ok := evaluated.(float64)
 			if !ok {
-				return nil, fmt.Errorf("'+' expects numbers, got %T", arg)
+				return nil, fmt.Errorf("'+' expects numbers, got %T", evaluated)
 			}
 			result += num
 		}
 		return result, nil
 	}))
 
-	env.Set(LispSymbol("-"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+	env.Set(LispSymbol("-"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) == 0 {
 			return nil, fmt.Errorf("'-' expects at least one argument")
 		}
-		first, ok := args[0].(float64)
+		first, err := Eval(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		firstNum, ok := first.(float64)
 		if !ok {
-			return nil, fmt.Errorf("'-' expects numbers, got %T", args[0])
+			return nil, fmt.Errorf("'-' expects numbers, got %T", first)
 		}
 		if len(args) == 1 {
-			return -first, nil
+			return -firstNum, nil
 		}
 		for _, arg := range args[1:] {
-			num, ok := arg.(float64)
-			if !ok {
-				return nil, fmt.Errorf("'-' expects numbers, got %T", arg)
+			evaluated, err := Eval(arg, env)
+			if err != nil {
+				return nil, err
 			}
-			first -= num
+			num, ok := evaluated.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'-' expects numbers, got %T", evaluated)
+			}
+			firstNum -= num
 		}
-		return first, nil
+		return firstNum, nil
 	}))
 
-	env.Set(LispSymbol("*"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+	env.Set(LispSymbol("*"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		result := 1.0
 		for _, arg := range args {
-			num, ok := arg.(float64)
+			evaluated, err := Eval(arg, env)
+			if err != nil {
+				return nil, err
+			}
+			num, ok := evaluated.(float64)
 			if !ok {
-				return nil, fmt.Errorf("'*' expects numbers, got %T", arg)
+				return nil, fmt.Errorf("'*' expects numbers, got %T", evaluated)
 			}
 			result *= num
 		}
 		return result, nil
 	}))
 
-	env.Set(LispSymbol("/"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+	env.Set(LispSymbol("/"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) < 2 {
 			return nil, fmt.Errorf("'/' expects at least two arguments")
 		}
-		first, ok := args[0].(float64)
+		first, err := Eval(args[0], env)
+		if err != nil {
+			return nil, err
+		}
+		firstNum, ok := first.(float64)
 		if !ok {
-			return nil, fmt.Errorf("'/' expects numbers, got %T", args[0])
+			return nil, fmt.Errorf("'/' expects numbers, got %T", first)
 		}
 		for _, arg := range args[1:] {
-			num, ok := arg.(float64)
+			evaluated, err := Eval(arg, env)
+			if err != nil {
+				return nil, err
+			}
+			num, ok := evaluated.(float64)
 			if !ok {
-				return nil, fmt.Errorf("'/' expects numbers, got %T", arg)
+				return nil, fmt.Errorf("'/' expects numbers, got %T", evaluated)
 			}
 			if num == 0 {
 				return nil, fmt.Errorf("division by zero")
 			}
-			first /= num
+			firstNum /= num
 		}
-		return first, nil
+		return firstNum, nil
 	}))
 
-	env.Set(LispSymbol("define"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
-		if len(args) != 2 {
-			return nil, fmt.Errorf("'define' expects exactly two arguments")
+	env.Set(LispSymbol("<"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("'<' expects at least two arguments")
 		}
-		symbol, ok := args[0].(LispSymbol)
-		if !ok {
-			return nil, fmt.Errorf("first argument to 'define' must be a symbol")
+		var prev float64
+		for i, arg := range args {
+			evaluated, err := Eval(arg, env)
+			if err != nil {
+				return nil, err
+			}
+			num, ok := evaluated.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'<' expects numbers, got %T", evaluated)
+			}
+			if i > 0 && prev >= num {
+				return false, nil
+			}
+			prev = num
 		}
-		value, err := Eval(args[1], env)
-		if err != nil {
-			return nil, err
-		}
-		env.Set(symbol, value)
-		return value, nil
+		return true, nil
 	}))
 
 	return env
@@ -269,7 +382,14 @@ func ExecuteGoshLisp(input string) (interface{}, error) {
 		return nil, err
 	}
 
-	return Eval(expr, globalLispEnv)
+	envMutex.Lock()
+	defer envMutex.Unlock()
+
+	if globalEnv == nil {
+		globalEnv = SetupGlobalEnvironment()
+	}
+
+	return Eval(expr, globalEnv)
 }
 
 // IsLispExpression checks if a given string is a Lisp expression
