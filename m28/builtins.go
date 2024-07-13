@@ -95,11 +95,10 @@ func loop(args []LispValue, env *Environment) (LispValue, error) {
 	if len(args) == 0 {
 		return nil, fmt.Errorf("'loop' expects at least one argument")
 	}
-	var result LispValue
-	var err error
 	for {
+		var err error
 		for _, arg := range args {
-			result, err = eval(arg, env)
+			_, err = eval(arg, env)
 			if err != nil {
 				return nil, err
 			}

@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// NewInterpreter creates a new Gosh Lisp interpreter
+// NewInterpreter creates a new M28 Lisp interpreter
 func NewInterpreter() *Interpreter {
 	return &Interpreter{
 		globalEnv: SetupGlobalEnvironment(),
@@ -45,7 +45,7 @@ func (i *Interpreter) Parse(input string) (LispValue, error) {
 	return parse(input)
 }
 
-// Execute parses and evaluates a Gosh Lisp expression
+// Execute parses and evaluates a M28 Lisp expression
 func (i *Interpreter) Execute(input string) (string, error) {
 	expr, err := i.Parse(input)
 	if err != nil {
@@ -59,7 +59,7 @@ func (i *Interpreter) Execute(input string) (string, error) {
 }
 
 // IsLispExpression checks if a given string is a Lisp expression
-func (i *Interpreter) IsLispExpression(cmdString string) bool {
+func IsLispExpression(cmdString string) bool {
 	trimmed := strings.TrimSpace(cmdString)
 	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")
 }
@@ -163,7 +163,7 @@ func eval(expr LispValue, env *Environment) (LispValue, error) {
 		case LispFunc:
 			return fn(args, env)
 		case *Lambda:
-			return evalLambda(fn, args, env)
+			return callLambda(fn, args, env)
 		default:
 			return nil, fmt.Errorf("not a function: %v", fn)
 		}
@@ -225,7 +225,7 @@ func evalLambda(list LispList, env *Environment) (LispValue, error) {
 	}, nil
 }
 
-func evalLambda(lambda *Lambda, args []LispValue, env *Environment) (LispValue, error) {
+func callLambda(lambda *Lambda, args []LispValue, env *Environment) (LispValue, error) {
 	if len(args) != len(lambda.Params) {
 		return nil, fmt.Errorf("lambda called with wrong number of arguments")
 	}

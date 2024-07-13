@@ -5,14 +5,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/mmichie/gosh/m28"
+	"gosh/m28"
 )
 
 func main() {
 	args := os.Args[1:]
 
 	if len(args) == 0 {
-		// If no arguments are provided, start the REPL
 		m28.RunREPL()
 		return
 	}
@@ -29,7 +28,6 @@ func main() {
 		}
 	}
 
-	// If the input is a Lisp expression, evaluate it
 	if m28.IsLispExpression(strings.Join(args, " ")) {
 		interpreter := m28.NewInterpreter()
 		result, err := interpreter.Execute(strings.Join(args, " "))
