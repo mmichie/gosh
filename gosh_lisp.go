@@ -4,287 +4,272 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"unicode"
+	"sync"
 )
 
-// Token represents a lexical token
-type Token struct {
-	Type  string
-	Value string
+// LispValue represents any Lisp value
+type LispValue interface{}
+
+// LispSymbol represents a Lisp symbol
+type LispSymbol string
+
+// LispList represents a Lisp list
+type LispList []LispValue
+
+// LispFunc represents a Lisp function
+type LispFunc func([]LispValue, *Environment) (LispValue, error)
+
+// Environment represents a Lisp environment
+type Environment struct {
+	vars  map[LispSymbol]LispValue
+	outer *Environment
 }
 
-// Lexer breaks input string into tokens
-func Lexer(input string) []Token {
-	var tokens []Token
-	var current strings.Builder
+var (
+	globalEnv *Environment
+	envMutex  sync.RWMutex
+)
 
-	for _, ch := range input {
-		if ch == '(' || ch == ')' {
-			if current.Len() > 0 {
-				tokens = append(tokens, classifyToken(current.String()))
-				current.Reset()
-			}
-			tokens = append(tokens, Token{Type: "paren", Value: string(ch)})
-		} else if unicode.IsSpace(ch) {
-			if current.Len() > 0 {
-				tokens = append(tokens, classifyToken(current.String()))
-				current.Reset()
-			}
-		} else {
-			current.WriteRune(ch)
-		}
+// NewEnvironment creates a new environment
+func NewEnvironment(outer *Environment) *Environment {
+	return &Environment{
+		vars:  make(map[LispSymbol]LispValue),
+		outer: outer,
 	}
-
-	if current.Len() > 0 {
-		tokens = append(tokens, classifyToken(current.String()))
-	}
-
-	return tokens
 }
 
-func classifyToken(token string) Token {
-	if _, err := strconv.ParseFloat(token, 64); err == nil {
-		return Token{Type: "number", Value: token}
+// Get retrieves a value from the environment
+func (e *Environment) Get(symbol LispSymbol) (LispValue, bool) {
+	value, ok := e.vars[symbol]
+	if !ok && e.outer != nil {
+		return e.outer.Get(symbol)
 	}
-	return Token{Type: "identifier", Value: token}
+	return value, ok
 }
 
-// Node represents a node in the abstract syntax tree
-type Node struct {
-	Type     string
-	Value    string
-	Children []Node
+// Set sets a value in the environment
+func (e *Environment) Set(symbol LispSymbol, value LispValue) {
+	e.vars[symbol] = value
 }
 
-// Parser converts tokens into an abstract syntax tree
-func Parser(tokens []Token) (Node, error) {
-	root := Node{Type: "root", Children: []Node{}}
-	current := &root
-	stack := []*Node{}
-
-	for _, token := range tokens {
-		if token.Type == "paren" && token.Value == "(" {
-			newNode := Node{Type: "expression"}
-			current.Children = append(current.Children, newNode)
-			stack = append(stack, current)
-			current = &current.Children[len(current.Children)-1]
-		} else if token.Type == "paren" && token.Value == ")" {
-			if len(stack) == 0 {
-				return Node{}, fmt.Errorf("unexpected closing parenthesis")
-			}
-			current = stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-		} else {
-			current.Children = append(current.Children, Node{Type: token.Type, Value: token.Value})
-		}
-	}
-
-	if len(stack) > 0 {
-		return Node{}, fmt.Errorf("missing closing parenthesis")
-	}
-
-	return root, nil
+// Parse converts a string into a LispValue
+func Parse(input string) (LispValue, error) {
+	tokens := tokenize(input)
+	return parseTokens(&tokens)
 }
 
-// Evaluate interprets the AST
-func Evaluate(node Node) (interface{}, error) {
-	switch node.Type {
-	case "root":
-		if len(node.Children) != 1 {
-			return nil, fmt.Errorf("expected single expression, got %d", len(node.Children))
-		}
-		return Evaluate(node.Children[0])
-	case "number":
-		return strconv.ParseFloat(node.Value, 64)
-	case "identifier":
-		return node.Value, nil
-	case "expression":
-		if len(node.Children) == 0 {
-			return nil, nil
-		}
-		operator, err := Evaluate(node.Children[0])
-		if err != nil {
-			return nil, err
-		}
-		operatorStr, ok := operator.(string)
-		if !ok {
-			return nil, fmt.Errorf("operator must be a string")
-		}
-		args := make([]interface{}, len(node.Children)-1)
-		for i, child := range node.Children[1:] {
-			arg, err := Evaluate(child)
+func tokenize(input string) []string {
+	input = strings.ReplaceAll(input, "(", " ( ")
+	input = strings.ReplaceAll(input, ")", " ) ")
+	return strings.Fields(input)
+}
+
+func parseTokens(tokens *[]string) (LispValue, error) {
+	if len(*tokens) == 0 {
+		return nil, fmt.Errorf("unexpected EOF")
+	}
+	token := (*tokens)[0]
+	*tokens = (*tokens)[1:]
+
+	switch token {
+	case "(":
+		var list LispList
+		for len(*tokens) > 0 && (*tokens)[0] != ")" {
+			val, err := parseTokens(tokens)
 			if err != nil {
 				return nil, err
 			}
-			args[i] = arg
+			list = append(list, val)
 		}
-		return EvaluateFunction(operatorStr, args)
+		if len(*tokens) == 0 {
+			return nil, fmt.Errorf("missing closing parenthesis")
+		}
+		*tokens = (*tokens)[1:] // consume the closing parenthesis
+		return list, nil
+	case ")":
+		return nil, fmt.Errorf("unexpected closing parenthesis")
 	default:
-		return nil, fmt.Errorf("unknown node type: %s", node.Type)
+		return parseAtom(token)
 	}
 }
 
-// EvaluateFunction applies the operator to the arguments
-func EvaluateFunction(operator string, args []interface{}) (interface{}, error) {
-	switch operator {
-	case "+":
-		return add(args)
-	case "-":
-		return subtract(args)
-	case "*":
-		return multiply(args)
-	case "/":
-		return divide(args)
-	case "=":
-		return equal(args)
-	case "<":
-		return lessThan(args)
-	case ">":
-		return greaterThan(args)
-	case "<=":
-		return lessThanOrEqual(args)
-	case ">=":
-		return greaterThanOrEqual(args)
-	default:
-		return nil, fmt.Errorf("unknown operator: %s", operator)
+func parseAtom(token string) (LispValue, error) {
+	if num, err := strconv.ParseFloat(token, 64); err == nil {
+		return num, nil
 	}
+	return LispSymbol(token), nil
 }
 
-func add(args []interface{}) (float64, error) {
-	result := 0.0
-	for _, arg := range args {
-		num, err := toFloat64(arg)
-		if err != nil {
-			return 0, err
+// Eval evaluates a LispValue in a given environment
+func Eval(expr LispValue, env *Environment) (LispValue, error) {
+	switch e := expr.(type) {
+	case LispSymbol:
+		value, ok := env.Get(e)
+		if !ok {
+			return nil, fmt.Errorf("undefined symbol: %s", e)
 		}
-		result += num
-	}
-	return result, nil
-}
-
-func subtract(args []interface{}) (float64, error) {
-	if len(args) == 0 {
-		return 0, fmt.Errorf("'-' operator expects at least one argument")
-	}
-	result, err := toFloat64(args[0])
-	if err != nil {
-		return 0, err
-	}
-	if len(args) == 1 {
-		return -result, nil
-	}
-	for _, arg := range args[1:] {
-		num, err := toFloat64(arg)
-		if err != nil {
-			return 0, err
+		return value, nil
+	case float64:
+		return e, nil
+	case LispList:
+		if len(e) == 0 {
+			return nil, fmt.Errorf("empty list")
 		}
-		result -= num
-	}
-	return result, nil
-}
-
-func multiply(args []interface{}) (float64, error) {
-	result := 1.0
-	for _, arg := range args {
-		num, err := toFloat64(arg)
-		if err != nil {
-			return 0, err
+		first := e[0]
+		if symbol, ok := first.(LispSymbol); ok && symbol == "define" {
+			return evalDefine(e, env)
 		}
-		result *= num
-	}
-	return result, nil
-}
-
-func divide(args []interface{}) (float64, error) {
-	if len(args) < 2 {
-		return 0, fmt.Errorf("'/' operator expects at least two arguments")
-	}
-	result, err := toFloat64(args[0])
-	if err != nil {
-		return 0, err
-	}
-	for i, arg := range args[1:] {
-		num, err := toFloat64(arg)
-		if err != nil {
-			return 0, err
-		}
-		if num == 0 {
-			return 0, fmt.Errorf("division by zero (at argument %d)", i+2)
-		}
-		result /= num
-	}
-	return result, nil
-}
-
-func equal(args []interface{}) (interface{}, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("'=' operator expects at least two arguments")
-	}
-	first := args[0]
-	for _, arg := range args[1:] {
-		if arg != first {
-			return false, nil
-		}
-	}
-	return true, nil
-}
-
-func lessThan(args []interface{}) (interface{}, error) {
-	return compareNumbers(args, func(a, b float64) bool { return a < b })
-}
-
-func greaterThan(args []interface{}) (interface{}, error) {
-	return compareNumbers(args, func(a, b float64) bool { return a > b })
-}
-
-func lessThanOrEqual(args []interface{}) (interface{}, error) {
-	return compareNumbers(args, func(a, b float64) bool { return a <= b })
-}
-
-func greaterThanOrEqual(args []interface{}) (interface{}, error) {
-	return compareNumbers(args, func(a, b float64) bool { return a >= b })
-}
-
-func compareNumbers(args []interface{}, compare func(float64, float64) bool) (interface{}, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("comparison operator expects at least two arguments")
-	}
-	prev, err := toFloat64(args[0])
-	if err != nil {
-		return nil, err
-	}
-	for _, arg := range args[1:] {
-		curr, err := toFloat64(arg)
+		first, err := Eval(first, env)
 		if err != nil {
 			return nil, err
 		}
-		if !compare(prev, curr) {
-			return false, nil
+		switch fn := first.(type) {
+		case LispFunc:
+			args := make([]LispValue, len(e)-1)
+			for i, arg := range e[1:] {
+				args[i], err = Eval(arg, env)
+				if err != nil {
+					return nil, err
+				}
+			}
+			return fn(args, env)
+		default:
+			return nil, fmt.Errorf("not a function: %v", fn)
 		}
-		prev = curr
+	default:
+		return nil, fmt.Errorf("unknown expression type: %T", e)
 	}
-	return true, nil
 }
 
-func toFloat64(v interface{}) (float64, error) {
-	switch v := v.(type) {
-	case float64:
-		return v, nil
-	case int:
-		return float64(v), nil
-	default:
-		return 0, fmt.Errorf("cannot convert %v to float64", v)
+func evalDefine(list LispList, env *Environment) (LispValue, error) {
+	if len(list) != 3 {
+		return nil, fmt.Errorf("'define' expects exactly two arguments")
 	}
+	symbol, ok := list[1].(LispSymbol)
+	if !ok {
+		return nil, fmt.Errorf("first argument to 'define' must be a symbol")
+	}
+	value, err := Eval(list[2], env)
+	if err != nil {
+		return nil, err
+	}
+	env.Set(symbol, value)
+	return value, nil
+}
+
+// InitGlobalEnvironment initializes the global Lisp environment
+func InitGlobalEnvironment() {
+	envMutex.Lock()
+	defer envMutex.Unlock()
+
+	globalEnv = SetupGlobalEnvironment()
+}
+
+// GetGlobalEnvironment returns the global Lisp environment
+func GetGlobalEnvironment() *Environment {
+	envMutex.RLock()
+	defer envMutex.RUnlock()
+
+	return globalEnv
+}
+
+// SetupGlobalEnvironment creates and populates the global environment
+func SetupGlobalEnvironment() *Environment {
+	env := NewEnvironment(nil)
+
+	env.Set(LispSymbol("+"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+		result := 0.0
+		for _, arg := range args {
+			num, ok := arg.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'+' expects numbers, got %T", arg)
+			}
+			result += num
+		}
+		return result, nil
+	}))
+
+	env.Set(LispSymbol("-"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+		if len(args) == 0 {
+			return nil, fmt.Errorf("'-' expects at least one argument")
+		}
+		first, ok := args[0].(float64)
+		if !ok {
+			return nil, fmt.Errorf("'-' expects numbers, got %T", args[0])
+		}
+		if len(args) == 1 {
+			return -first, nil
+		}
+		for _, arg := range args[1:] {
+			num, ok := arg.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'-' expects numbers, got %T", arg)
+			}
+			first -= num
+		}
+		return first, nil
+	}))
+
+	env.Set(LispSymbol("*"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+		result := 1.0
+		for _, arg := range args {
+			num, ok := arg.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'*' expects numbers, got %T", arg)
+			}
+			result *= num
+		}
+		return result, nil
+	}))
+
+	env.Set(LispSymbol("/"), LispFunc(func(args []LispValue, _ *Environment) (LispValue, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("'/' expects at least two arguments")
+		}
+		first, ok := args[0].(float64)
+		if !ok {
+			return nil, fmt.Errorf("'/' expects numbers, got %T", args[0])
+		}
+		for _, arg := range args[1:] {
+			num, ok := arg.(float64)
+			if !ok {
+				return nil, fmt.Errorf("'/' expects numbers, got %T", arg)
+			}
+			if num == 0 {
+				return nil, fmt.Errorf("division by zero")
+			}
+			first /= num
+		}
+		return first, nil
+	}))
+
+	env.Set(LispSymbol("define"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("'define' expects exactly two arguments")
+		}
+		symbol, ok := args[0].(LispSymbol)
+		if !ok {
+			return nil, fmt.Errorf("first argument to 'define' must be a symbol")
+		}
+		value, err := Eval(args[1], env)
+		if err != nil {
+			return nil, err
+		}
+		env.Set(symbol, value)
+		return value, nil
+	}))
+
+	return env
 }
 
 // ExecuteGoshLisp takes a Gosh Lisp expression and evaluates it
 func ExecuteGoshLisp(input string) (interface{}, error) {
-	tokens := Lexer(input)
-	ast, err := Parser(tokens)
+	expr, err := Parse(input)
 	if err != nil {
 		return nil, err
 	}
-	return Evaluate(ast)
+
+	return Eval(expr, globalLispEnv)
 }
 
 // IsLispExpression checks if a given string is a Lisp expression

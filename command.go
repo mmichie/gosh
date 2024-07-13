@@ -27,6 +27,12 @@ type Command struct {
 	JobManager *JobManager
 }
 
+var globalLispEnv *Environment
+
+func init() {
+	globalLispEnv = SetupGlobalEnvironment()
+}
+
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	parsedCmd, err := parser.Parse(input)
 	if err != nil {
