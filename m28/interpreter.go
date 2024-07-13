@@ -29,6 +29,7 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol(">"), LispFunc(greaterThan))
 	env.Set(LispSymbol("="), LispFunc(equals))
 	env.Set(LispSymbol("nil"), nil)
+	env.Set(LispSymbol("null?"), LispFunc(nullFunc))
 
 	// Add control structures
 	env.Set(LispSymbol("if"), LispFunc(ifFunc))
@@ -42,6 +43,10 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol("print"), LispFunc(printFunc))
 	env.Set(LispSymbol("string-append"), LispFunc(stringAppend))
 	env.Set(LispSymbol("number->string"), LispFunc(numberToString))
+
+	env.Set(LispSymbol("car"), LispFunc(car))
+	env.Set(LispSymbol("cdr"), LispFunc(cdr))
+	env.Set(LispSymbol("cons"), LispFunc(cons))
 
 	return env
 }

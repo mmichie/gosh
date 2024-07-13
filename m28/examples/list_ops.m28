@@ -1,0 +1,25 @@
+(define my-list (quote (1 2 3 4 5)))
+
+(print "Original list:")
+(print my-list)
+
+(define sum
+  (lambda (lst)
+    (if (null? lst)
+        0
+        (+ (car lst) (sum (cdr lst))))))
+
+(print "Sum of list elements:")
+(print (sum my-list))
+
+(define map
+  (lambda (func lst)
+    (if (null? lst)
+        (quote ())
+        (cons (func (car lst)) (map func (cdr lst))))))
+
+(define square
+  (lambda (x) (* x x)))
+
+(print "Squared list:")
+(print (map square my-list))

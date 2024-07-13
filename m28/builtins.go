@@ -329,3 +329,54 @@ func equalValues(a, b LispValue) bool {
 	}
 	return false
 }
+
+func nullFunc(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'null?' expects exactly one argument")
+	}
+	switch arg := args[0].(type) {
+	case LispList:
+		return len(arg) == 0, nil
+	case nil:
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func car(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'car' expects exactly one argument")
+	}
+	list, ok := args[0].(LispList)
+	if !ok || len(list) == 0 {
+		return nil, fmt.Errorf("'car' expects a non-empty list")
+	}
+	return list[0], nil
+}
+
+func cdr(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'cdr' expects exactly one argument")
+	}
+	list, ok := args[0].(LispList)
+	if !ok || len(list) == 0 {
+		return nil, fmt.Errorf("'cdr' expects a non-empty list")
+	}
+	return LispList(list[1:]), nil
+}
+
+func cons(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 2 {
+		return nil, fmt.Errorf("'cons' expects exactly two arguments")
+	}
+	head, tail := args[0], args[1]
+	switch t := tail.(type) {
+	case LispList:
+		// Prepend head to the existing list
+		return LispList(append([]LispValue{head}, t...)), nil
+	default:
+		// Return a pair (head . tail) if tail is not a list
+		return LispList{head, tail}, nil
+	}
+}
