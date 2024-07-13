@@ -38,15 +38,32 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol("begin"), LispFunc(beginFunc))
 	env.Set(LispSymbol("quote"), LispFunc(quoteFunc))
 	env.Set(LispSymbol("do"), LispFunc(do))
+	env.Set(LispSymbol("when"), LispFunc(when))
+	env.Set(LispSymbol("unless"), LispFunc(unless))
 
 	// Add utility functions
 	env.Set(LispSymbol("print"), LispFunc(printFunc))
 	env.Set(LispSymbol("string-append"), LispFunc(stringAppend))
 	env.Set(LispSymbol("number->string"), LispFunc(numberToString))
 
+	// Add list operations
 	env.Set(LispSymbol("car"), LispFunc(car))
 	env.Set(LispSymbol("cdr"), LispFunc(cdr))
 	env.Set(LispSymbol("cons"), LispFunc(cons))
+	env.Set(LispSymbol("append"), LispFunc(appendFunc))
+	env.Set(LispSymbol("list"), LispFunc(list))
+	env.Set(LispSymbol("length"), LispFunc(length))
+
+	// Add logical operations
+	env.Set(LispSymbol("and"), LispFunc(and))
+	env.Set(LispSymbol("or"), LispFunc(or))
+	env.Set(LispSymbol("not"), LispFunc(not))
+
+	// Add type checking functions
+	env.Set(LispSymbol("isNumber"), LispFunc(isNumber))
+	env.Set(LispSymbol("isString"), LispFunc(isString))
+	env.Set(LispSymbol("isSymbol"), LispFunc(isSymbol))
+	env.Set(LispSymbol("isList"), LispFunc(isList))
 
 	return env
 }

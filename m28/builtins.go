@@ -378,3 +378,87 @@ func cons(args []LispValue, _ *Environment) (LispValue, error) {
 		return LispList{head, tail}, nil
 	}
 }
+
+func and(args []LispValue, _ *Environment) (LispValue, error) {
+	for _, arg := range args {
+		if !IsTruthy(arg) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func or(args []LispValue, _ *Environment) (LispValue, error) {
+	for _, arg := range args {
+		if IsTruthy(arg) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func not(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'not' expects exactly one argument")
+	}
+	return !IsTruthy(args[0]), nil
+}
+
+func appendFunc(args []LispValue, _ *Environment) (LispValue, error) {
+	var result LispList
+	for _, arg := range args {
+		if list, ok := arg.(LispList); ok {
+			result = append(result, list...)
+		} else {
+			result = append(result, arg)
+		}
+	}
+	return result, nil
+}
+
+func list(args []LispValue, _ *Environment) (LispValue, error) {
+	return LispList(args), nil
+}
+
+func length(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'length' expects exactly one argument")
+	}
+	list, ok := args[0].(LispList)
+	if !ok {
+		return nil, fmt.Errorf("'length' expects a list, got %T", args[0])
+	}
+	return float64(len(list)), nil
+}
+
+func isNumber(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'isNumber' expects exactly one argument")
+	}
+	_, ok := args[0].(float64)
+	return ok, nil
+}
+
+func isString(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'isString' expects exactly one argument")
+	}
+	_, ok := args[0].(string)
+	return ok, nil
+}
+
+func isSymbol(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'isSymbol' expects exactly one argument")
+	}
+	_, ok := args[0].(LispSymbol)
+	return ok, nil
+}
+
+func isList(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'isList' expects exactly one argument")
+	}
+	_, ok := args[0].(LispList)
+	return ok, nil
+}
