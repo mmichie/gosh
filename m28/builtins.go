@@ -2,6 +2,7 @@ package m28
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -108,8 +109,8 @@ func loop(args []LispValue, env *Environment) (LispValue, error) {
 }
 
 func do(args []LispValue, env *Environment) (LispValue, error) {
-	if len(args) < 2 {
-		return nil, fmt.Errorf("'do' expects at least two arguments")
+	if len(args) < 3 {
+		return nil, fmt.Errorf("'do' expects at least three arguments")
 	}
 
 	// Parse variable bindings
@@ -153,14 +154,17 @@ func do(args []LispValue, env *Environment) (LispValue, error) {
 		}
 		if IsTruthy(endResult) {
 			// Execute result forms and return
-			var result LispValue
-			for _, resultForm := range endTest[1:] {
-				result, err = EvalExpression(resultForm, localEnv)
-				if err != nil {
-					return nil, err
+			if len(endTest) > 1 {
+				var result LispValue
+				for _, resultForm := range endTest[1:] {
+					result, err = EvalExpression(resultForm, localEnv)
+					if err != nil {
+						return nil, err
+					}
 				}
+				return result, nil
 			}
-			return result, nil
+			return nil, nil // If no result forms, return nil
 		}
 
 		// Execute body
@@ -249,4 +253,79 @@ func stringAppend(args []LispValue, _ *Environment) (LispValue, error) {
 		}
 	}
 	return strings.Join(parts, ""), nil
+}
+
+func greaterThan(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("'>' expects at least two arguments")
+	}
+	prev, ok := args[0].(float64)
+	if !ok {
+		return nil, fmt.Errorf("'>' expects numbers, got %T", args[0])
+	}
+	for _, arg := range args[1:] {
+		num, ok := arg.(float64)
+		if !ok {
+			return nil, fmt.Errorf("'>' expects numbers, got %T", arg)
+		}
+		if prev <= num {
+			return false, nil
+		}
+		prev = num
+	}
+	return true, nil
+}
+
+func numberToString(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'number->string' expects exactly one argument")
+	}
+	num, ok := args[0].(float64)
+	if !ok {
+		return nil, fmt.Errorf("'number->string' expects a number, got %T", args[0])
+	}
+	return strconv.FormatFloat(num, 'f', -1, 64), nil
+}
+
+func equals(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("'=' expects at least two arguments")
+	}
+	first := args[0]
+	for _, arg := range args[1:] {
+		if !equalValues(first, arg) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func equalValues(a, b LispValue) bool {
+	switch va := a.(type) {
+	case float64:
+		if vb, ok := b.(float64); ok {
+			return va == vb
+		}
+	case string:
+		if vb, ok := b.(string); ok {
+			return va == vb
+		}
+	case LispSymbol:
+		if vb, ok := b.(LispSymbol); ok {
+			return va == vb
+		}
+	case LispList:
+		if vb, ok := b.(LispList); ok {
+			if len(va) != len(vb) {
+				return false
+			}
+			for i := range va {
+				if !equalValues(va[i], vb[i]) {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	return false
 }

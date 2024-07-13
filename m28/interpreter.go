@@ -16,13 +16,6 @@ func NewInterpreter() *Interpreter {
 	}
 }
 
-// Eval evaluates a LispValue in the interpreter's environment
-func (i *Interpreter) Eval(expr LispValue) (LispValue, error) {
-	i.envMutex.RLock()
-	defer i.envMutex.RUnlock()
-	return EvalExpression(expr, i.globalEnv)
-}
-
 // SetupGlobalEnvironment creates and populates the global environment
 func SetupGlobalEnvironment() *Environment {
 	env := NewEnvironment(nil)
@@ -33,21 +26,67 @@ func SetupGlobalEnvironment() *Environment {
 	env.Set(LispSymbol("*"), LispFunc(multiply))
 	env.Set(LispSymbol("/"), LispFunc(divide))
 	env.Set(LispSymbol("<"), LispFunc(lessThan))
+	env.Set(LispSymbol(">"), LispFunc(greaterThan))
+	env.Set(LispSymbol("="), LispFunc(equals))
 
 	// Add control structures
-	env.Set(LispSymbol("loop"), LispFunc(loop))
+	env.Set(LispSymbol("if"), LispFunc(ifFunc))
+	env.Set(LispSymbol("define"), LispFunc(defineFunc))
+	env.Set(LispSymbol("lambda"), LispFunc(lambdaFunc))
+	env.Set(LispSymbol("begin"), LispFunc(beginFunc))
+	env.Set(LispSymbol("quote"), LispFunc(quoteFunc))
 	env.Set(LispSymbol("do"), LispFunc(do))
-	env.Set(LispSymbol("when"), LispFunc(when))
-	env.Set(LispSymbol("unless"), LispFunc(unless))
+
+	// Add utility functions
 	env.Set(LispSymbol("print"), LispFunc(printFunc))
 	env.Set(LispSymbol("string-append"), LispFunc(stringAppend))
+	env.Set(LispSymbol("number->string"), LispFunc(numberToString))
 
 	return env
 }
 
+// Helper functions for special forms
+func ifFunc(args []LispValue, env *Environment) (LispValue, error) {
+	return evalIf(LispList(append([]LispValue{LispSymbol("if")}, args...)), env)
+}
+
+func defineFunc(args []LispValue, env *Environment) (LispValue, error) {
+	return evalDefine(LispList(append([]LispValue{LispSymbol("define")}, args...)), env)
+}
+
+func lambdaFunc(args []LispValue, env *Environment) (LispValue, error) {
+	return evalLambda(LispList(append([]LispValue{LispSymbol("lambda")}, args...)), env)
+}
+
+func beginFunc(args []LispValue, env *Environment) (LispValue, error) {
+	return evalBegin(LispList(append([]LispValue{LispSymbol("begin")}, args...)), env)
+}
+
+func quoteFunc(args []LispValue, _ *Environment) (LispValue, error) {
+	if len(args) != 1 {
+		return nil, fmt.Errorf("'quote' expects exactly one argument")
+	}
+	return args[0], nil
+}
+
+// Eval evaluates a LispValue in the interpreter's environment
+func (i *Interpreter) Eval(expr LispValue) (LispValue, error) {
+	i.envMutex.RLock()
+	defer i.envMutex.RUnlock()
+	return EvalExpression(expr, i.globalEnv)
+}
+
 // Parse converts a string into a LispValue
 func (i *Interpreter) Parse(input string) (LispValue, error) {
-	return parse(input)
+	tokens := tokenize(input)
+	expressions, err := parseMultiple(&tokens)
+	if err != nil {
+		return nil, err
+	}
+	if len(expressions) == 1 {
+		return expressions[0], nil
+	}
+	return LispList(expressions), nil
 }
 
 // Execute parses and evaluates a M28 Lisp expression
@@ -76,18 +115,34 @@ func (i *Interpreter) ExecuteFile(filename string) error {
 		return fmt.Errorf("error reading file: %v", err)
 	}
 
-	// Execute each expression in the file
-	expressions := strings.Split(string(content), "\n")
-	for _, expr := range expressions {
-		expr = strings.TrimSpace(expr)
-		if expr == "" || strings.HasPrefix(expr, ";") {
-			continue // Skip empty lines and comments
+	// Parse the entire file content
+	expressions, err := i.Parse(string(content))
+	if err != nil {
+		return fmt.Errorf("error parsing file: %v", err)
+	}
+
+	// Evaluate each expression
+	var result LispValue
+	switch expr := expressions.(type) {
+	case LispList:
+		for _, e := range expr {
+			result, err = i.Eval(e)
+			if err != nil {
+				return fmt.Errorf("error evaluating expression: %v", err)
+			}
+			// Only print non-nil results
+			if result != nil {
+				fmt.Println("=>", PrintValue(result))
+			}
 		}
-		result, err := i.Execute(expr)
+	default:
+		result, err = i.Eval(expr)
 		if err != nil {
-			return fmt.Errorf("error executing expression '%s': %v", expr, err)
+			return fmt.Errorf("error evaluating expression: %v", err)
 		}
-		fmt.Println("=>", result)
+		if result != nil {
+			fmt.Println("=>", PrintValue(result))
+		}
 	}
 
 	return nil
@@ -99,9 +154,16 @@ func IsLispExpression(cmdString string) bool {
 	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")")
 }
 
-func parse(input string) (LispValue, error) {
-	tokens := tokenize(input)
-	return parseTokens(&tokens)
+func parseMultiple(tokens *[]string) ([]LispValue, error) {
+	var expressions []LispValue
+	for len(*tokens) > 0 {
+		expr, err := parseTokens(tokens)
+		if err != nil {
+			return nil, err
+		}
+		expressions = append(expressions, expr)
+	}
+	return expressions, nil
 }
 
 func tokenize(input string) []string {
@@ -154,8 +216,8 @@ func parseTokens(tokens *[]string) (LispValue, error) {
 	token := (*tokens)[0]
 	*tokens = (*tokens)[1:]
 
-	switch token {
-	case "(":
+	switch {
+	case token == "(":
 		var list LispList
 		for len(*tokens) > 0 && (*tokens)[0] != ")" {
 			val, err := parseTokens(tokens)
@@ -169,8 +231,14 @@ func parseTokens(tokens *[]string) (LispValue, error) {
 		}
 		*tokens = (*tokens)[1:] // consume the closing parenthesis
 		return list, nil
-	case ")":
+	case token == ")":
 		return nil, fmt.Errorf("unexpected closing parenthesis")
+	case token == "'":
+		quoted, err := parseTokens(tokens)
+		if err != nil {
+			return nil, err
+		}
+		return LispList{LispSymbol("quote"), quoted}, nil
 	default:
 		return parseAtom(token)
 	}
@@ -190,7 +258,6 @@ func parseAtom(token string) (LispValue, error) {
 	// If it's not a string or number, it's a symbol
 	return LispSymbol(token), nil
 }
-
 func EvalExpression(expr LispValue, env *Environment) (LispValue, error) {
 	switch e := expr.(type) {
 	case LispSymbol:
@@ -225,6 +292,8 @@ func EvalExpression(expr LispValue, env *Environment) (LispValue, error) {
 				return evalLambda(e, env)
 			case "begin":
 				return evalBegin(e, env)
+			case "do":
+				return do(e[1:], env)
 			}
 		}
 
