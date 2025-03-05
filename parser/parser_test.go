@@ -190,7 +190,10 @@ func TestProcessCommand(t *testing.T) {
 				t.Errorf("ProcessCommand() command = %v, want %v", command, tc.expectedCommand)
 			}
 			if !reflect.DeepEqual(args, tc.expectedArgs) {
-				t.Errorf("ProcessCommand() args = %v, want %v", args, tc.expectedArgs)
+				t.Errorf("ProcessCommand() args = %#v, want %#v", args, tc.expectedArgs)
+				t.Logf("Input: %#v", tc.input)
+				t.Logf("Input Parts: %#v", tc.input.Parts)
+				t.Logf("Input Redirects: %#v", tc.input.Redirects)
 			}
 			if inputRedir != tc.expectedInputRedir {
 				t.Errorf("ProcessCommand() inputRedir = %v, want %v", inputRedir, tc.expectedInputRedir)

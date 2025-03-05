@@ -65,17 +65,15 @@ func Parse(input string) (*Command, error) {
 
 func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, string, string) {
 	if len(cmd.Parts) == 0 {
-		return "", nil, "", "", "", ""
+		return "", []string{}, "", "", "", ""
 	}
 
-	// The command string might contain the command and args combined
-	parts := strings.Fields(strings.Join(cmd.Parts, " "))
-	command := parts[0]
+	command := cmd.Parts[0]
 
 	// Handle arguments (all parts after the first one)
-	var args []string
-	if len(parts) > 1 {
-		args = parts[1:]
+	args := []string{}
+	if len(cmd.Parts) > 1 {
+		args = cmd.Parts[1:]
 	}
 	var inputRedirectType, inputFilename, outputRedirectType, outputFilename string
 
