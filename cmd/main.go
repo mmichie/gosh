@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -19,7 +20,17 @@ func main() {
 	log.SetFlags(0)
 	log.SetPrefix("")
 
+	var cmdFlag string
+	flag.StringVar(&cmdFlag, "c", "", "Execute a command and exit")
+	flag.Parse()
+
 	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
+
+	// If -c flag is provided, execute the command and exit
+	if cmdFlag != "" {
+		executeCommand(cmdFlag)
+		return
+	}
 
 	fmt.Println("Welcome to gosh Shell")
 
@@ -109,4 +120,17 @@ func main() {
 
 		rl.SaveHistory(line)
 	}
+}
+
+func executeCommand(cmd string) {
+	jobManager := gosh.NewJobManager()
+	command, err := gosh.NewCommand(cmd, jobManager)
+	if err != nil {
+		log.Fatalf("Error creating command: %v", err)
+	}
+
+	command.Stdin = os.Stdin
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	command.Run()
 }

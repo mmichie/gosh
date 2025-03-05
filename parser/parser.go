@@ -68,11 +68,19 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, strin
 		return "", nil, "", "", "", ""
 	}
 
-	command := cmd.Parts[0]
-	args := cmd.Parts[1:]
+	// The command string might contain the command and args combined
+	parts := strings.Fields(strings.Join(cmd.Parts, " "))
+	command := parts[0]
+
+	// Handle arguments (all parts after the first one)
+	var args []string
+	if len(parts) > 1 {
+		args = parts[1:]
+	}
 	var inputRedirectType, inputFilename, outputRedirectType, outputFilename string
 
 	for _, redirect := range cmd.Redirects {
+		// Process redirection
 		if redirect.Type == "<" {
 			inputRedirectType = redirect.Type
 			inputFilename = redirect.File

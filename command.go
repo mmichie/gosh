@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -52,16 +53,91 @@ func (cmd *Command) Run() {
 	cmd.TTY = os.Getenv("TTY")
 	cmd.EUID = os.Geteuid()
 
-	for _, andCommand := range cmd.AndCommands {
-		success := true
-		for _, pipeline := range andCommand.Pipelines {
-			success = cmd.executePipeline(pipeline)
+	// Check for redirection at the top level
+	if len(cmd.AndCommands) == 1 && len(cmd.AndCommands[0].Pipelines) == 1 {
+		pipeline := cmd.AndCommands[0].Pipelines[0]
+		if len(pipeline.Commands) == 1 {
+			simpleCmd := pipeline.Commands[0]
+			_, _, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+
+			// Setup input redirection
+			var originalStdin io.Reader = cmd.Stdin
+			if inputRedirectType == "<" && inputFilename != "" {
+				inputFile, err := os.Open(inputFilename)
+				if err != nil {
+					fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
+					cmd.ReturnCode = 1
+					return
+				}
+				defer inputFile.Close()
+				cmd.Stdin = inputFile
+			}
+
+			// Setup output redirection
+			var originalStdout io.Writer = cmd.Stdout
+			if outputRedirectType != "" && outputFilename != "" {
+				var outputFile *os.File
+				var err error
+				if outputRedirectType == ">" {
+					outputFile, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+				} else { // ">>"
+					outputFile, err = os.OpenFile(outputFilename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+				}
+
+				if err != nil {
+					fmt.Fprintf(cmd.Stderr, "Error opening output file: %v\n", err)
+					cmd.ReturnCode = 1
+					return
+				}
+				defer outputFile.Close()
+				cmd.Stdout = outputFile
+			}
+
+			// Run with redirected I/O
+			for _, andCommand := range cmd.AndCommands {
+				success := true
+				for _, pipeline := range andCommand.Pipelines {
+					success = cmd.executePipeline(pipeline)
+					if !success {
+						break
+					}
+				}
+				if !success {
+					break
+				}
+			}
+
+			// Restore original I/O
+			cmd.Stdin = originalStdin
+			cmd.Stdout = originalStdout
+		} else {
+			// Normal execution without redirection handling
+			for _, andCommand := range cmd.AndCommands {
+				success := true
+				for _, pipeline := range andCommand.Pipelines {
+					success = cmd.executePipeline(pipeline)
+					if !success {
+						break
+					}
+				}
+				if !success {
+					break
+				}
+			}
+		}
+	} else {
+		// Normal execution without redirection handling
+		for _, andCommand := range cmd.AndCommands {
+			success := true
+			for _, pipeline := range andCommand.Pipelines {
+				success = cmd.executePipeline(pipeline)
+				if !success {
+					break
+				}
+			}
 			if !success {
 				break
 			}
-		}
-		if !success {
-			break
 		}
 	}
 
@@ -72,6 +148,7 @@ func (cmd *Command) Run() {
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var cmds []*exec.Cmd
 	var pipes []*io.PipeWriter
+	var outputFile *os.File
 	lastOutput := cmd.Stdin
 
 	for i, simpleCmd := range pipeline.Commands {
@@ -111,7 +188,37 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 		simpleCmd = parsedCmd.AndCommands[0].Pipelines[0].Commands[0]
 
-		cmdName, args, _, _, _, _ := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+
+		// Handle input redirection
+		var inputFile *os.File
+		if inputRedirectType == "<" && inputFilename != "" {
+			inputFile, err = cmd.setupInputRedirection(inputFilename)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			defer inputFile.Close()
+			lastOutput = inputFile
+		}
+
+		// Handle output redirection
+		if outputRedirectType != "" && outputFilename != "" {
+			fmt.Fprintf(cmd.Stderr, "Setting up output redirection: %s %s\n", outputRedirectType, outputFilename)
+			outputFile, err = cmd.setupOutputRedirection(outputRedirectType, outputFilename)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error setting up output redirection: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			// Print out file info
+			fileInfo, _ := outputFile.Stat()
+			if fileInfo != nil {
+				fmt.Fprintf(cmd.Stderr, "Output file created: %s, path: %s\n", fileInfo.Name(), outputFilename)
+			}
+			// Don't defer the close, we need to keep the file open until we write to it
+		}
 
 		if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands
@@ -130,9 +237,21 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			}
 			lastOutput = &output
 
-			// Write the output of the built-in command to cmd.Stdout
+			// Write the output of the built-in command
 			if i == len(pipeline.Commands)-1 {
-				io.Copy(cmd.Stdout, &output)
+				if outputFile != nil {
+					fmt.Fprintf(cmd.Stderr, "Writing to output file for builtin command\n")
+					n, err := io.Copy(outputFile, &output)
+					if err != nil {
+						fmt.Fprintf(cmd.Stderr, "Error writing to file: %v\n", err)
+					} else {
+						fmt.Fprintf(cmd.Stderr, "Wrote %d bytes to file\n", n)
+					}
+					outputFile.Close() // Close the file after writing to it
+					outputFile = nil   // Prevent closing again
+				} else {
+					io.Copy(cmd.Stdout, &output)
+				}
 			}
 		} else {
 			// Handle external commands
@@ -147,6 +266,8 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				execCmd.Stdout = w
 				lastOutput = r
 				pipes = append(pipes, w)
+			} else if outputFile != nil {
+				execCmd.Stdout = outputFile
 			} else {
 				execCmd.Stdout = cmd.Stdout
 			}
@@ -178,6 +299,12 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 	}
 
+	// Close any output files
+	if outputFile != nil {
+		fmt.Fprintf(cmd.Stderr, "Closing output file for external command\n")
+		outputFile.Close()
+	}
+
 	cmd.ReturnCode = 0
 	return true
 }
@@ -200,12 +327,32 @@ func evaluateLispInCommand(cmdString string) (string, error) {
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {
+	fmt.Fprintf(cmd.Stderr, "Opening file %s with mode %s\n", filename, redirectType)
+	var file *os.File
+	var err error
+
 	switch redirectType {
 	case ">":
-		return os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	case ">>":
-		return os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	default:
 		return nil, fmt.Errorf("unknown redirection type: %s", redirectType)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Get absolute path
+	absPath, err := filepath.Abs(filename)
+	if err == nil {
+		fmt.Fprintf(cmd.Stderr, "Absolute path: %s\n", absPath)
+	}
+
+	return file, nil
+}
+
+func (cmd *Command) setupInputRedirection(filename string) (*os.File, error) {
+	return os.Open(filename)
 }
