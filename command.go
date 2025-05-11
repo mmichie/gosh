@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"gosh/m28"
+	"gosh/m28adapter"
 	"gosh/parser"
 )
 
@@ -29,10 +29,10 @@ type Command struct {
 	JobManager *JobManager
 }
 
-var m28Interpreter *m28.Interpreter
+var m28Interpreter *m28adapter.Interpreter
 
 func init() {
-	m28Interpreter = m28.NewInterpreter()
+	m28Interpreter = m28adapter.NewInterpreter()
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
@@ -156,7 +156,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		cmdString := strings.Join(simpleCmd.Parts, " ")
 
 		// Check if the command is an M28 expression
-		if m28.IsLispExpression(cmdString) {
+		if m28adapter.IsLispExpression(cmdString) {
 			result, err := m28Interpreter.Execute(cmdString)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "M28 error in '%s': %v\n", cmdString, err)
@@ -314,7 +314,7 @@ func evaluateM28InCommand(cmdString string) (string, error) {
 	re := regexp.MustCompile(`\((.*?)\)`)
 	var lastErr error
 	result := re.ReplaceAllStringFunc(cmdString, func(match string) string {
-		if m28.IsLispExpression(match) {
+		if m28adapter.IsLispExpression(match) {
 			result, err := m28Interpreter.Execute(match)
 			if err != nil {
 				lastErr = fmt.Errorf("in '%s': %v", match, err)

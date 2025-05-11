@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"gosh/m28"
+	"gosh/m28adapter"
 	"gosh/parser"
 )
 
@@ -283,7 +283,7 @@ func runM28(cmd *Command) error {
 	// Get the global interpreter instance
 	interpreter := m28Interpreter
 	if interpreter == nil {
-		interpreter = m28.NewInterpreter()
+		interpreter = m28adapter.NewInterpreter()
 		m28Interpreter = interpreter
 	}
 
