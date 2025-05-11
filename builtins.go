@@ -35,6 +35,7 @@ func cd(cmd *Command) error {
 	var targetDir string
 	gs := GetGlobalState()
 
+	// Get the argument if any
 	if len(cmd.AndCommands) > 0 && len(cmd.AndCommands[0].Pipelines) > 0 && len(cmd.AndCommands[0].Pipelines[0].Commands) > 0 {
 		firstCommand := cmd.AndCommands[0].Pipelines[0].Commands[0]
 		if len(firstCommand.Parts) > 1 {
@@ -42,35 +43,58 @@ func cd(cmd *Command) error {
 		}
 	}
 
+	// Store the current directory before changing
 	currentDir := gs.GetCWD()
 
+	// Determine target directory
 	if targetDir == "" {
-		targetDir = os.Getenv("HOME") // Default to HOME if no argument given
-	} else if targetDir == "-" {
-		targetDir = gs.GetPreviousDir()
+		// Default to HOME if no argument given
+		targetDir = os.Getenv("HOME")
 		if targetDir == "" {
+			return fmt.Errorf("cd: HOME not set")
+		}
+	} else if targetDir == "-" {
+		// Try getting previous directory from various sources
+		previousDir := gs.GetPreviousDir()
+
+		// If not set in global state, try environment variable
+		if previousDir == "" {
+			previousDir = os.Getenv("OLDPWD")
+		}
+
+		// If still not found, return an error
+		if previousDir == "" {
 			return fmt.Errorf("cd: OLDPWD not set")
 		}
+
+		targetDir = previousDir
+
 		// Always print the directory we're changing to when using cd -
 		fmt.Fprintln(cmd.Stdout, targetDir)
+
+		// Log for debugging
+		fmt.Fprintf(cmd.Stderr, "cd: changing to previous directory: %s\n", targetDir)
 	}
 
+	// Attempt to change directory
 	err := os.Chdir(targetDir)
 	if err != nil {
 		return fmt.Errorf("cd: %v", err)
 	}
 
+	// Get the absolute path of the new directory
 	newDir, err := os.Getwd()
 	if err != nil {
+		// If we can't get the current directory, revert to the previous one
+		os.Chdir(currentDir)
 		return fmt.Errorf("cd: %v", err)
 	}
 
-	// Update the environment variables
-	os.Setenv("OLDPWD", currentDir)
-	os.Setenv("PWD", newDir)
-
-	// Update the global state
-	gs.UpdateCWD(newDir)
+	// Only update if we actually changed directories
+	if currentDir != newDir {
+		// Update the global state - this will also update environment variables
+		gs.UpdateCWD(newDir)
+	}
 
 	return nil
 }

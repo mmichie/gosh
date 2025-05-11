@@ -154,8 +154,8 @@ func TestIntegration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		// Skip known failing tests until the core code is fixed
-		if tt.name == "CD with dash" || tt.name == "File creation and content verification" {
+		// Skip known failing test for file creation until fixed
+		if tt.name == "File creation and content verification" {
 			t.Logf("Skipping known failing test: %s", tt.name)
 			continue
 		}
@@ -168,10 +168,11 @@ func TestIntegration(t *testing.T) {
 			gs := GetGlobalState()
 			gs.UpdateCWD(tempDir)
 
-			// For CD with dash test, ensure PreviousDir is set correctly
+			// Special handling for tests that need specific setup
 			if tt.name == "CD with dash" {
-				// Force the previous directory to be the temp directory
-				gs.PreviousDir = tempDir
+				// Log the current state for debugging
+				log.Printf("PreviousDir before test: %s", gs.GetPreviousDir())
+				log.Printf("OLDPWD env var: %s", os.Getenv("OLDPWD"))
 			}
 
 			if tt.setup != nil {
