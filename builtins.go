@@ -50,6 +50,8 @@ func cd(cmd *Command) error {
 		if targetDir == "" {
 			return fmt.Errorf("cd: OLDPWD not set")
 		}
+		// Always print the directory we're changing to when using cd -
+		fmt.Fprintln(cmd.Stdout, targetDir)
 	}
 
 	err := os.Chdir(targetDir)

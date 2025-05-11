@@ -17,9 +17,14 @@ var once sync.Once
 func GetGlobalState() *GlobalState {
 	once.Do(func() {
 		cwd, _ := os.Getwd()
+		// Initialize with different PreviousDir to ensure cd - works properly
+		prevDir := os.Getenv("HOME")
+		if prevDir == "" {
+			prevDir = cwd
+		}
 		globalState = &GlobalState{
 			CWD:         cwd,
-			PreviousDir: cwd,
+			PreviousDir: prevDir,
 		}
 	})
 	return globalState

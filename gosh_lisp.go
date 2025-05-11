@@ -418,7 +418,7 @@ func SetupGlobalEnvironment() *Environment {
 		}
 		return true, nil
 	}))
-	
+
 	env.Set(LispSymbol(">"), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) < 2 {
 			return nil, fmt.Errorf("'>' expects at least two arguments")
@@ -440,7 +440,7 @@ func SetupGlobalEnvironment() *Environment {
 		}
 		return true, nil
 	}))
-	
+
 	env.Set(LispSymbol("<="), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) < 2 {
 			return nil, fmt.Errorf("'<=' expects at least two arguments")
@@ -462,7 +462,7 @@ func SetupGlobalEnvironment() *Environment {
 		}
 		return true, nil
 	}))
-	
+
 	env.Set(LispSymbol(">="), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) < 2 {
 			return nil, fmt.Errorf("'>=' expects at least two arguments")
@@ -484,25 +484,25 @@ func SetupGlobalEnvironment() *Environment {
 		}
 		return true, nil
 	}))
-	
+
 	env.Set(LispSymbol("="), LispFunc(func(args []LispValue, env *Environment) (LispValue, error) {
 		if len(args) < 2 {
 			return nil, fmt.Errorf("'=' expects at least two arguments")
 		}
-		
+
 		// Evaluate the first argument
 		first, err := Eval(args[0], env)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Check that all other arguments evaluate to the same value
 		for _, arg := range args[1:] {
 			evaluated, err := Eval(arg, env)
 			if err != nil {
 				return nil, err
 			}
-			
+
 			// For numbers, compare as float64
 			if firstNum, firstOk := first.(float64); firstOk {
 				if evalNum, evalOk := evaluated.(float64); evalOk {
@@ -516,7 +516,7 @@ func SetupGlobalEnvironment() *Environment {
 				return false, nil
 			}
 		}
-		
+
 		return true, nil
 	}))
 
@@ -560,7 +560,7 @@ func ExecuteGoshLisp(input string) (interface{}, error) {
 		}
 		return nil, err
 	}
-	
+
 	return value, nil
 }
 
@@ -571,20 +571,40 @@ func IsLispExpression(cmdString string) bool {
 }
 
 func evalLoop(args []LispValue, env *Environment) (LispValue, error) {
-	if len(args) == 0 {
-		return nil, fmt.Errorf("'loop' expects at least one argument")
+	if len(args) < 2 {
+		return nil, fmt.Errorf("'loop' expects at least two arguments: a condition and one or more body expressions")
 	}
+
+	// First argument is the loop condition
+	condition := args[0]
+	// Remaining arguments are the body
+	body := args[1:]
+
 	var result LispValue
-	var err error
+
 	for {
-		for _, arg := range args {
+		// Evaluate the condition
+		condResult, err := Eval(condition, env)
+		if err != nil {
+			return nil, err
+		}
+
+		// Exit the loop if the condition is not truthy
+		if !isTruthy(condResult) {
+			break
+		}
+
+		// Execute the body
+		for _, arg := range body {
+			var err error
 			result, err = Eval(arg, env)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-	return result, nil // This line will never be reached in an infinite loop
+
+	return result, nil
 }
 
 func evalDo(args []LispValue, env *Environment) (LispValue, error) {

@@ -274,6 +274,32 @@ func TestFormatCommand(t *testing.T) {
 			},
 			expected: "mkdir test && cd test",
 		},
+		{
+			name: "Multiple AND commands",
+			input: &Command{
+				AndCommands: []*AndCommand{
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"false"}},
+								},
+							},
+						},
+					},
+					{
+						Pipelines: []*Pipeline{
+							{
+								Commands: []*SimpleCommand{
+									{Parts: []string{"echo", "success"}},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: "false && echo success",
+		},
 	}
 
 	for _, tc := range testCases {

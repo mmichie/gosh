@@ -327,27 +327,32 @@ func evaluateLispInCommand(cmdString string) (string, error) {
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {
-	fmt.Fprintf(cmd.Stderr, "Opening file %s with mode %s\n", filename, redirectType)
+	// Get absolute path and ensure parent directories exist
+	absPath, err := filepath.Abs(filename)
+	if err != nil {
+		return nil, fmt.Errorf("error resolving path: %v", err)
+	}
+
+	// Create parent directories if they don't exist
+	dir := filepath.Dir(absPath)
+	err = os.MkdirAll(dir, 0755)
+	if err != nil {
+		return nil, fmt.Errorf("error creating parent directories: %v", err)
+	}
+
 	var file *os.File
-	var err error
 
 	switch redirectType {
 	case ">":
-		file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
 	case ">>":
-		file, err = os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
 	default:
 		return nil, fmt.Errorf("unknown redirection type: %s", redirectType)
 	}
 
 	if err != nil {
 		return nil, err
-	}
-
-	// Get absolute path
-	absPath, err := filepath.Abs(filename)
-	if err == nil {
-		fmt.Fprintf(cmd.Stderr, "Absolute path: %s\n", absPath)
 	}
 
 	return file, nil
