@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gosh/m28"
 	"gosh/parser"
 )
 
@@ -28,10 +29,10 @@ type Command struct {
 	JobManager *JobManager
 }
 
-var globalLispEnv *Environment
+var m28Interpreter *m28.Interpreter
 
 func init() {
-	globalLispEnv = SetupGlobalEnvironment()
+	m28Interpreter = m28.NewInterpreter()
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
@@ -154,15 +155,15 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	for i, simpleCmd := range pipeline.Commands {
 		cmdString := strings.Join(simpleCmd.Parts, " ")
 
-		// Check if the command is a Lisp expression
-		if IsLispExpression(cmdString) {
-			result, err := ExecuteGoshLisp(cmdString)
+		// Check if the command is an M28 expression
+		if m28.IsLispExpression(cmdString) {
+			result, err := m28Interpreter.Execute(cmdString)
 			if err != nil {
-				fmt.Fprintf(cmd.Stderr, "Lisp error in '%s': %v\n", cmdString, err)
+				fmt.Fprintf(cmd.Stderr, "M28 error in '%s': %v\n", cmdString, err)
 				cmd.ReturnCode = 1
 				return false
 			}
-			output := fmt.Sprintf("%v\n", result)
+			output := result + "\n"
 			if i < len(pipeline.Commands)-1 {
 				lastOutput = strings.NewReader(output)
 			} else {
@@ -171,15 +172,15 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			continue
 		}
 
-		// Evaluate any embedded Lisp expressions
-		evaluatedCmd, err := evaluateLispInCommand(cmdString)
+		// Evaluate any embedded M28 expressions
+		evaluatedCmd, err := evaluateM28InCommand(cmdString)
 		if err != nil {
-			fmt.Fprintf(cmd.Stderr, "Lisp error in '%s': %v\n", cmdString, err)
+			fmt.Fprintf(cmd.Stderr, "M28 error in '%s': %v\n", cmdString, err)
 			cmd.ReturnCode = 1
 			return false
 		}
 
-		// Re-parse the command after Lisp evaluation
+		// Re-parse the command after M28 evaluation
 		parsedCmd, err := parser.Parse(evaluatedCmd)
 		if err != nil {
 			fmt.Fprintf(cmd.Stderr, "Parse error: %v\n", err)
@@ -309,17 +310,17 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	return true
 }
 
-func evaluateLispInCommand(cmdString string) (string, error) {
+func evaluateM28InCommand(cmdString string) (string, error) {
 	re := regexp.MustCompile(`\((.*?)\)`)
 	var lastErr error
 	result := re.ReplaceAllStringFunc(cmdString, func(match string) string {
-		if IsLispExpression(match) {
-			result, err := ExecuteGoshLisp(match)
+		if m28.IsLispExpression(match) {
+			result, err := m28Interpreter.Execute(match)
 			if err != nil {
 				lastErr = fmt.Errorf("in '%s': %v", match, err)
 				return match // Keep the original expression if there's an error
 			}
-			return fmt.Sprintf("%v", result)
+			return result
 		}
 		return match
 	})

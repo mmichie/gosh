@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"gosh/m28"
 	"gosh/parser"
 )
 
@@ -27,7 +28,7 @@ func init() {
 	builtins["fg"] = fg
 	builtins["bg"] = bg
 	builtins["prompt"] = prompt
-	builtins["gosh-lisp"] = goshLisp
+	builtins["m28"] = runM28
 }
 
 func cd(cmd *Command) error {
@@ -272,17 +273,28 @@ func prompt(cmd *Command) error {
 	return nil
 }
 
-func goshLisp(cmd *Command) error {
+func runM28(cmd *Command) error {
 	if len(cmd.AndCommands) == 0 || len(cmd.AndCommands[0].Pipelines) == 0 || len(cmd.AndCommands[0].Pipelines[0].Commands) == 0 {
-		return fmt.Errorf("Usage: gosh-lisp <expression>")
+		return fmt.Errorf("Usage: m28 <expression>")
 	}
 
 	expression := strings.Join(cmd.AndCommands[0].Pipelines[0].Commands[0].Parts[1:], " ")
-	result, err := ExecuteGoshLisp(expression)
-	if err != nil {
-		return fmt.Errorf("Gosh Lisp error: %v", err)
+
+	// Get the global interpreter instance
+	interpreter := m28Interpreter
+	if interpreter == nil {
+		interpreter = m28.NewInterpreter()
+		m28Interpreter = interpreter
 	}
 
-	_, err = fmt.Fprintf(cmd.Stdout, "%v\n", result)
+	// Strip quotes if they exist
+	expression = strings.Trim(expression, "\"'")
+
+	result, err := interpreter.Execute(expression)
+	if err != nil {
+		return fmt.Errorf("M28 error: %v", err)
+	}
+
+	_, err = fmt.Fprintf(cmd.Stdout, "%s\n", result)
 	return err
 }
