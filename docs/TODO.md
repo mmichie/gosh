@@ -13,11 +13,12 @@ The following tasks have been identified as the next items to implement, based o
    - Added a dedicated test case in `cd_test.go` to verify proper functionality
    - Ensured cross-platform compatibility by handling symlinks (e.g., `/var` vs `/private/var` on macOS)
 
-□ **Fix File Redirection Issues**
-   - Current issue: Problems with file creation and output redirection in tests
-   - In `command.go`: Review the `defer outputFile.Close()` which might be closing files too early
-   - Ensure file paths are resolved correctly before operations
-   - Add better error handling for file operations
+✅ **Fixed: File Redirection Issues**
+   - Completely refactored the command execution logic in `command.go` to properly handle file redirection
+   - Resolved issues with files being closed too early by reorganizing when and how files are opened and closed
+   - Added proper file path handling by resolving absolute paths
+   - Implemented a dedicated test case in `redirection_test.go` to verify the functionality
+   - Fixed the integration test for file creation and content verification
 
 □ **Implement OR Operator (||)**
    - Current issue: Shell doesn't support OR operators for conditional execution

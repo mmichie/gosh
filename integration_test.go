@@ -154,11 +154,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		// Skip known failing test for file creation until fixed
-		if tt.name == "File creation and content verification" {
-			t.Logf("Skipping known failing test: %s", tt.name)
-			continue
-		}
+		// All tests should run now
 
 		t.Run(tt.name, func(t *testing.T) {
 			log.Printf("--- Starting test: %s ---", tt.name)
