@@ -21,7 +21,12 @@ func main() {
 	log.SetPrefix("")
 
 	var cmdFlag string
+	var trimHistoryFlag bool
+	var decayHistoryFlag bool
+
 	flag.StringVar(&cmdFlag, "c", "", "Execute a command and exit")
+	flag.BoolVar(&trimHistoryFlag, "trim-history", false, "Trim argument history database")
+	flag.BoolVar(&decayHistoryFlag, "decay-history", false, "Apply decay factor to argument history")
 	flag.Parse()
 
 	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
@@ -32,11 +37,43 @@ func main() {
 		return
 	}
 
+	// If maintenance flags are provided without interactive mode, exit after processing
+	if (trimHistoryFlag || decayHistoryFlag) && cmdFlag == "" {
+		fmt.Println("Maintenance operations completed.")
+		return
+	}
+
 	fmt.Println("Welcome to gosh Shell")
 	fmt.Println("Tab completion is ready to use")
 
 	jobManager := gosh.NewJobManager()
-	completer := gosh.NewCompleter(gosh.Builtins())
+
+	// Declare completer variable at the beginning
+	var completer readline.AutoCompleter
+
+	// Create argument history database for smart argument completion
+	argHistory, err := gosh.NewArgHistoryDB("")
+	if err != nil {
+		log.Printf("Warning: Could not initialize argument history: %v", err)
+		// If we can't load the argument history, fall back to basic completion
+		completer = gosh.NewCompleter(gosh.Builtins())
+	} else {
+		// Process history maintenance flags
+		if trimHistoryFlag {
+			fmt.Println("Trimming argument history database...")
+			argHistory.Trim(100) // Keep top 100 arguments per command
+			argHistory.Save()
+		}
+
+		if decayHistoryFlag {
+			fmt.Println("Applying decay factor to argument history...")
+			argHistory.ApplyDecay(0.9) // Apply 10% decay
+			argHistory.Save()
+		}
+
+		// Use smart completer with argument history and cycling behavior
+		completer = gosh.NewSmartCompleter(gosh.Builtins(), argHistory)
+	}
 
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:            gosh.GetPrompt(),
@@ -114,8 +151,20 @@ func main() {
 
 		// Record command usage for tab completion learning
 		if len(line) > 0 && strings.Fields(line)[0] != "" {
-			firstCmd := strings.Fields(line)[0]
-			completer.RecordCommandUsage(firstCmd)
+			parts := strings.Fields(line)
+			firstCmd := parts[0]
+
+			// Record command usage for basic command completion
+			if sc, ok := completer.(*gosh.SmartCompleter); ok {
+				sc.Completer.RecordCommandUsage(firstCmd)
+			} else if bc, ok := completer.(*gosh.Completer); ok {
+				bc.RecordCommandUsage(firstCmd)
+			}
+
+			// Record argument usage for argument completion
+			if argHistory != nil && len(parts) > 1 {
+				argHistory.RecordArgUsage(firstCmd, parts[1:])
+			}
 		}
 
 		if historyManager != nil {
@@ -126,6 +175,11 @@ func main() {
 		}
 
 		rl.SaveHistory(line)
+	}
+
+	// Save argument history database before exiting
+	if argHistory != nil {
+		argHistory.Save()
 	}
 }
 
