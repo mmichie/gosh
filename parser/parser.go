@@ -11,6 +11,7 @@ import (
 
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Whitespace", Pattern: `\s+`},
+	{Name: "Or", Pattern: `\|\|`}, // Add OR operator pattern before Pipe
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
 	{Name: "Redirect", Pattern: `>>|>|<`},
@@ -19,11 +20,17 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 })
 
 type Command struct {
-	AndCommands []*AndCommand `parser:"@@+"`
+	LogicalBlocks []*LogicalBlock `parser:"@@+"`
 }
 
-type AndCommand struct {
-	Pipelines []*Pipeline `parser:"@@ ( '&&' @@ )*"`
+type LogicalBlock struct {
+	FirstPipeline *Pipeline     `parser:"@@"`
+	RestPipelines []*OpPipeline `parser:"@@*"`
+}
+
+type OpPipeline struct {
+	Operator string    `parser:"@('&&' | '||')"` // Store the operator (either && or ||)
+	Pipeline *Pipeline `parser:"@@"`
 }
 
 type Pipeline struct {
@@ -56,7 +63,7 @@ func Parse(input string) (*Command, error) {
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
 
-	if len(command.AndCommands) == 0 {
+	if len(command.LogicalBlocks) == 0 {
 		return nil, fmt.Errorf("no valid commands found")
 	}
 
@@ -93,15 +100,20 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, strin
 
 func FormatCommand(cmd *Command) string {
 	var result strings.Builder
-	for i, andCmd := range cmd.AndCommands {
+	for i, block := range cmd.LogicalBlocks {
 		if i > 0 {
-			result.WriteString(" && ")
+			result.WriteString(" ; ") // Blocks are separated by semicolons
 		}
-		for j, pipeline := range andCmd.Pipelines {
-			if j > 0 {
-				result.WriteString(" && ")
-			}
-			result.WriteString(formatPipeline(pipeline))
+
+		// Format the first pipeline
+		result.WriteString(formatPipeline(block.FirstPipeline))
+
+		// Format the rest of the pipelines with their operators
+		for _, opPipeline := range block.RestPipelines {
+			result.WriteString(" ")
+			result.WriteString(opPipeline.Operator) // && or ||
+			result.WriteString(" ")
+			result.WriteString(formatPipeline(opPipeline.Pipeline))
 		}
 	}
 	return result.String()

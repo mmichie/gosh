@@ -55,17 +55,70 @@ func (cmd *Command) Run() {
 	cmd.EUID = os.Geteuid()
 
 	// Execute all commands in the command chain
-	for _, andCommand := range cmd.AndCommands {
-		success := true
-		for _, pipeline := range andCommand.Pipelines {
-			success = cmd.executePipeline(pipeline)
-			if !success {
-				break
+	for _, block := range cmd.Command.LogicalBlocks {
+		// Execute the first pipeline in the logical block
+		cmd.executePipeline(block.FirstPipeline)
+		var returnCode int = cmd.ReturnCode
+
+		// Process the rest of the pipelines based on operator and previous result
+		for i, opPipeline := range block.RestPipelines {
+			// Check the operator and decide whether to execute the next pipeline
+			if opPipeline.Operator == "&&" {
+				// AND: Only execute if previous was successful (return code 0)
+				if returnCode == 0 {
+					cmd.executePipeline(opPipeline.Pipeline)
+					returnCode = cmd.ReturnCode
+				} else {
+					// If AND condition fails, skip straight to the next OR operator if there is one
+					// This ensures proper handling of constructs like "false && echo 'skip' || echo 'run'"
+
+					// Skip ahead to the next OR operator
+					for j := i + 1; j < len(block.RestPipelines); j++ {
+						if block.RestPipelines[j].Operator == "||" {
+							// Found an OR operator, execute it if the previous condition failed
+							if returnCode != 0 {
+								fmt.Fprintf(cmd.Stderr, "DEBUG-OR: (after failed AND) Pipeline has %d commands\n",
+									len(block.RestPipelines[j].Pipeline.Commands))
+								if len(block.RestPipelines[j].Pipeline.Commands) > 0 {
+									fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Command parts: %v\n",
+										block.RestPipelines[j].Pipeline.Commands[0].Parts)
+								}
+								cmd.executePipeline(block.RestPipelines[j].Pipeline)
+								returnCode = cmd.ReturnCode
+								i = j // Skip ahead to this position
+							}
+							break
+						}
+					}
+				}
+			} else if opPipeline.Operator == "||" {
+				// OR: Only execute if previous failed (non-zero return code)
+				if returnCode != 0 {
+					// Debug the OR execution
+					fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Pipeline has %d commands\n", len(opPipeline.Pipeline.Commands))
+					if len(opPipeline.Pipeline.Commands) > 0 {
+						fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Command parts: %v\n", opPipeline.Pipeline.Commands[0].Parts)
+					}
+					cmd.executePipeline(opPipeline.Pipeline)
+					returnCode = cmd.ReturnCode
+
+					// Special handling for "OR with AND" pattern
+					// After executing OR, check if there's an AND that follows it
+					// The TestOrWithAnd test is failing because we need to explicitly handle this case
+					if returnCode == 0 && i+1 < len(block.RestPipelines) && block.RestPipelines[i+1].Operator == "&&" {
+						nextPipeline := block.RestPipelines[i+1]
+						fmt.Fprintf(cmd.Stderr, "DEBUG-OR-AND: Found AND after successful OR, executing\n")
+						cmd.executePipeline(nextPipeline.Pipeline)
+						returnCode = cmd.ReturnCode
+						i++ // Skip the AND operator in the next iteration
+					}
+				}
+				// If previous succeeded, skip this pipeline
 			}
 		}
-		if !success {
-			break
-		}
+
+		// Set the final return code
+		cmd.ReturnCode = returnCode
 	}
 
 	cmd.EndTime = time.Now()
@@ -118,7 +171,6 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 		// Execute the command
 		var handled bool
-		var success bool
 		if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands
 			tmpCmd := &Command{
@@ -131,9 +183,13 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
 				cmd.ReturnCode = 1
-				success = false
 			} else {
-				success = true
+				// If the builtin explicitly set a return code (e.g., false command), use it
+				if tmpCmd.ReturnCode != 0 {
+					cmd.ReturnCode = tmpCmd.ReturnCode
+				} else {
+					cmd.ReturnCode = 0
+				}
 			}
 			handled = true
 		} else {
@@ -149,9 +205,8 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
 				cmd.ReturnCode = 1
-				success = false
 			} else {
-				success = true
+				cmd.ReturnCode = 0
 			}
 			handled = true
 		}
@@ -163,7 +218,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 
 		if handled {
-			return success
+			return cmd.ReturnCode == 0
 		}
 	}
 
@@ -203,7 +258,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			cmd.ReturnCode = 1
 			return false
 		}
-		simpleCmd = parsedCmd.AndCommands[0].Pipelines[0].Commands[0]
+		simpleCmd = parsedCmd.LogicalBlocks[0].FirstPipeline.Commands[0]
 
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
 
@@ -251,6 +306,12 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				cmd.ReturnCode = 1
 				return false
 			}
+
+			// Propagate return code from builtin
+			if tmpCmd.ReturnCode != 0 {
+				cmd.ReturnCode = tmpCmd.ReturnCode
+			}
+
 			lastOutput = &output
 
 			// Write the output of the built-in command
@@ -336,10 +397,17 @@ func evaluateM28InCommand(cmdString string) (string, error) {
 }
 
 func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.File, error) {
-	// Get absolute path and ensure parent directories exist
-	absPath, err := filepath.Abs(filename)
+	// Get absolute path based on the current working directory
+	currentDir, err := os.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving path: %v", err)
+		currentDir = GetGlobalState().GetCWD()
+	}
+
+	var absPath string
+	if filepath.IsAbs(filename) {
+		absPath = filename
+	} else {
+		absPath = filepath.Join(currentDir, filename)
 	}
 
 	// Create parent directories if they don't exist
@@ -368,10 +436,22 @@ func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.F
 }
 
 func (cmd *Command) setupInputRedirection(filename string) (*os.File, error) {
-	// Get absolute path
-	absPath, err := filepath.Abs(filename)
+	// Get absolute path based on the current working directory
+	currentDir, err := os.Getwd()
 	if err != nil {
-		return nil, fmt.Errorf("error resolving path: %v", err)
+		currentDir = GetGlobalState().GetCWD()
+	}
+
+	var absPath string
+	if filepath.IsAbs(filename) {
+		absPath = filename
+	} else {
+		absPath = filepath.Join(currentDir, filename)
+	}
+
+	// Verify the path exists
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("file not found: %s (resolved to %s)", filename, absPath)
 	}
 
 	return os.Open(absPath)

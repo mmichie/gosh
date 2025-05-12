@@ -79,3 +79,9 @@ func (gs *GlobalState) GetPreviousDir() string {
 	defer gs.mu.RUnlock()
 	return gs.PreviousDir
 }
+
+func (gs *GlobalState) SetPreviousDir(prevDir string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.PreviousDir = prevDir
+}

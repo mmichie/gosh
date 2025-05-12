@@ -1,4 +1,4 @@
-default-targets := testall test format compile
+default-targets := testall test format compile fmt
 special-targets := install clean log run coverage
 dir-basename := $(notdir $(PWD))
 
@@ -26,6 +26,8 @@ coverage:
 format:
 	@echo "Formatting Go files..."
 	go fmt ./...
+
+fmt: format
 
 compile: format
 	@echo "Compiling the application..."

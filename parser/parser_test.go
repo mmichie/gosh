@@ -15,13 +15,11 @@ func TestParseValidInputs(t *testing.T) {
 			name:  "Simple command",
 			input: "ls -l",
 			expected: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"ls", "-l"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"ls", "-l"}},
 							},
 						},
 					},
@@ -32,14 +30,12 @@ func TestParseValidInputs(t *testing.T) {
 			name:  "Pipeline",
 			input: "cat file.txt | grep pattern",
 			expected: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"cat", "file.txt"}},
-									{Parts: []string{"grep", "pattern"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"cat", "file.txt"}},
+								{Parts: []string{"grep", "pattern"}},
 							},
 						},
 					},
@@ -50,17 +46,20 @@ func TestParseValidInputs(t *testing.T) {
 			name:  "AND command",
 			input: "mkdir test && cd test",
 			expected: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"mkdir", "test"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"mkdir", "test"}},
 							},
+						},
+						RestPipelines: []*OpPipeline{
 							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"cd", "test"}},
+								Operator: "&&",
+								Pipeline: &Pipeline{
+									Commands: []*SimpleCommand{
+										{Parts: []string{"cd", "test"}},
+									},
 								},
 							},
 						},
@@ -72,16 +71,14 @@ func TestParseValidInputs(t *testing.T) {
 			name:  "Command with redirections",
 			input: "echo 'Hello' > output.txt",
 			expected: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{
-										Parts: []string{"echo", "'Hello'"},
-										Redirects: []*Redirect{
-											{Type: ">", File: "output.txt"},
-										},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{
+									Parts: []string{"echo", "'Hello'"},
+									Redirects: []*Redirect{
+										{Type: ">", File: "output.txt"},
 									},
 								},
 							},
@@ -211,7 +208,7 @@ func TestProcessCommand(t *testing.T) {
 	}
 }
 
-func TestFormatCommand(t *testing.T) {
+func TestFormatCommandNew(t *testing.T) {
 	testCases := []struct {
 		name     string
 		input    *Command
@@ -220,13 +217,11 @@ func TestFormatCommand(t *testing.T) {
 		{
 			name: "Simple command",
 			input: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"ls", "-l"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"ls", "-l"}},
 							},
 						},
 					},
@@ -237,14 +232,12 @@ func TestFormatCommand(t *testing.T) {
 		{
 			name: "Pipeline",
 			input: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"cat", "file.txt"}},
-									{Parts: []string{"grep", "pattern"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"cat", "file.txt"}},
+								{Parts: []string{"grep", "pattern"}},
 							},
 						},
 					},
@@ -255,17 +248,20 @@ func TestFormatCommand(t *testing.T) {
 		{
 			name: "AND command",
 			input: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"mkdir", "test"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"mkdir", "test"}},
 							},
+						},
+						RestPipelines: []*OpPipeline{
 							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"cd", "test"}},
+								Operator: "&&",
+								Pipeline: &Pipeline{
+									Commands: []*SimpleCommand{
+										{Parts: []string{"cd", "test"}},
+									},
 								},
 							},
 						},
@@ -275,30 +271,29 @@ func TestFormatCommand(t *testing.T) {
 			expected: "mkdir test && cd test",
 		},
 		{
-			name: "Multiple AND commands",
+			name: "OR command",
 			input: &Command{
-				AndCommands: []*AndCommand{
+				LogicalBlocks: []*LogicalBlock{
 					{
-						Pipelines: []*Pipeline{
-							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"false"}},
-								},
+						FirstPipeline: &Pipeline{
+							Commands: []*SimpleCommand{
+								{Parts: []string{"false"}},
 							},
 						},
-					},
-					{
-						Pipelines: []*Pipeline{
+						RestPipelines: []*OpPipeline{
 							{
-								Commands: []*SimpleCommand{
-									{Parts: []string{"echo", "success"}},
+								Operator: "||",
+								Pipeline: &Pipeline{
+									Commands: []*SimpleCommand{
+										{Parts: []string{"echo", "failed"}},
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-			expected: "false && echo success",
+			expected: "false || echo failed",
 		},
 	}
 
