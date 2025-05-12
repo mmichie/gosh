@@ -37,11 +37,6 @@ The following tasks have been identified as the next items to implement, based o
 
 ### Medium Priority
 
-□ **Background Job Improvements**
-   - Enhance background job management with proper job control
-   - Implement the `&` operator to run commands in the background
-   - Add support for job listing, foreground/background switching
-
 □ **Shell Script Support**
    - Add ability to execute shell scripts from files
    - Implement basic flow control structures (if/else, loops)
@@ -143,3 +138,4 @@ The following tasks have been identified as the next items to implement, based o
 - Built-in commands
 - M28 Lisp integration
 - Command separators (`;`) for multiple commands
+- Background jobs management (`&`, `jobs`, `fg`, `bg`)
