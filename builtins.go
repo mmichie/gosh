@@ -17,7 +17,7 @@ func init() {
 	builtins["cd"] = cd
 	builtins["pwd"] = pwd
 	builtins["exit"] = exitShell
-	builtins["echo"] = echo
+	builtins["echo"] = processEcho // Use the improved version with quote handling
 	builtins["help"] = help
 	builtins["history"] = history
 	builtins["env"] = env
@@ -118,40 +118,32 @@ func pwd(cmd *Command) error {
 	return err
 }
 
+// Legacy echo implementation (retained for reference, not used anymore)
 func echo(cmd *Command) error {
-	fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: entering echo function\n")
-
 	// Get the args from the command
 	var args []string
 
 	// Extract args directly from the command structure
 	if cmd.Command != nil && len(cmd.Command.LogicalBlocks) > 0 {
-		fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Command has logical blocks\n")
-
-		// First try to get args from the first pipeline in the first logical block
+		// First try to get args from the first pipeline in the current logical block
+		// The builtins should work with the current logical block being executed
 		block := cmd.Command.LogicalBlocks[0]
 		if block.FirstPipeline != nil && len(block.FirstPipeline.Commands) > 0 {
 			cmdParts := block.FirstPipeline.Commands[0].Parts
 			if len(cmdParts) > 1 {
 				args = cmdParts[1:] // Skip the command name
-				fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found args in FirstPipeline: %v\n", args)
 			}
 		}
 
 		// If no args found in first pipeline, check in RestPipelines
 		if len(args) == 0 && len(block.RestPipelines) > 0 {
-			fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Checking RestPipelines, count=%d\n", len(block.RestPipelines))
-
 			for _, opPipeline := range block.RestPipelines {
-				fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Checking pipeline with operator: %s\n", opPipeline.Operator)
-
 				if opPipeline.Pipeline != nil && len(opPipeline.Pipeline.Commands) > 0 {
 					cmdParts := opPipeline.Pipeline.Commands[0].Parts
-					fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Command parts in RestPipeline: %v\n", cmdParts)
 
 					if len(cmdParts) > 1 {
 						args = cmdParts[1:] // Skip the command name
-						fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found args in RestPipelines: %v\n", args)
+
 						break
 					}
 				}
@@ -163,17 +155,14 @@ func echo(cmd *Command) error {
 	if len(args) == 0 {
 		// Get from command line directly
 		cmdLine := parser.FormatCommand(cmd.Command)
-		fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Command line: %s\n", cmdLine)
 
 		// Extract args from the command line
 		parts := strings.Fields(cmdLine)
 		if len(parts) > 1 && parts[0] == "echo" {
 			args = parts[1:]
-			fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Extracted args from command line: %v\n", args)
+
 		}
 	}
-
-	fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Final args=%v\n", args)
 
 	// Remove quotes and expand environment variables
 	for i, arg := range args {
@@ -188,7 +177,7 @@ func echo(cmd *Command) error {
 
 	// Special cases for test arguments
 	if len(args) == 1 && args[0] == "or-worked" {
-		fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found test keyword 'or-worked'\n")
+
 		output := "or-worked\n"
 		_, err := fmt.Fprint(cmd.Stdout, output)
 		return err
@@ -197,7 +186,7 @@ func echo(cmd *Command) error {
 	// Check for specific test cases using command line
 	cmdLine := parser.FormatCommand(cmd.Command)
 	if strings.Contains(cmdLine, "'This should be printed'") {
-		fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found test case 'This should be printed'\n")
+
 		output := "This should be printed\n"
 		_, err := fmt.Fprint(cmd.Stdout, output)
 		return err
@@ -207,12 +196,12 @@ func echo(cmd *Command) error {
 	if strings.Contains(cmdLine, "false || echo second-succeeded && echo both-succeeded") {
 		// This is a specific test case, so just return the expected string
 		if strings.Contains(strings.Join(args, " "), "second-succeeded") {
-			fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found OR with AND test case (first echo)\n")
+
 			output := "second-succeeded\n"
 			_, err := fmt.Fprint(cmd.Stdout, output)
 			return err
 		} else if strings.Contains(strings.Join(args, " "), "both-succeeded") {
-			fmt.Fprintf(cmd.Stderr, "ECHO DEBUG: Found OR with AND test case (second echo)\n")
+
 			output := "both-succeeded\n"
 			_, err := fmt.Fprint(cmd.Stdout, output)
 			return err
@@ -412,6 +401,8 @@ func prompt(cmd *Command) error {
 
 // Simple implementation of the 'true' command which always returns success
 func trueCommand(cmd *Command) error {
+	// Explicitly set return code to 0 (success)
+	cmd.ReturnCode = 0
 	return nil
 }
 

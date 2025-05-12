@@ -11,16 +11,17 @@ import (
 
 var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Whitespace", Pattern: `\s+`},
-	{Name: "Or", Pattern: `\|\|`}, // Add OR operator pattern before Pipe
+	{Name: "Semicolon", Pattern: `;`}, // Add semicolon pattern for command separation
+	{Name: "Or", Pattern: `\|\|`},     // Add OR operator pattern before Pipe
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
 	{Name: "Redirect", Pattern: `>>|>|<`},
 	{Name: "Quote", Pattern: `'[^']*'|"[^"]*"`},
-	{Name: "Word", Pattern: `[^\s|><&'"]+`},
+	{Name: "Word", Pattern: `[^\s|><&'";]+`}, // Updated to exclude semicolons
 })
 
 type Command struct {
-	LogicalBlocks []*LogicalBlock `parser:"@@+"`
+	LogicalBlocks []*LogicalBlock `parser:"@@ ( ';' @@ )*"`
 }
 
 type LogicalBlock struct {
@@ -53,13 +54,27 @@ var parser = participle.MustBuild[Command](
 )
 
 func Parse(input string) (*Command, error) {
+	// Handle empty input
 	if strings.TrimSpace(input) == "" {
 		return nil, fmt.Errorf("empty input")
 	}
 
-	command, err := parser.ParseString("", input)
+	// Preprocess input to handle trailing semicolons by removing them
+	cleanInput := strings.TrimSpace(input)
+	if strings.HasSuffix(cleanInput, ";") {
+		cleanInput = strings.TrimSuffix(cleanInput, ";")
+		cleanInput = strings.TrimSpace(cleanInput)
+
+		// If after removing trailing semicolon, we have empty string, it's an error
+		if cleanInput == "" {
+			return nil, fmt.Errorf("no valid commands found")
+		}
+	}
+
+	// Parse the cleaned input
+	command, err := parser.ParseString("", cleanInput)
 	if err != nil {
-		log.Printf("Failed to parse command string: %s, error: %v", input, err)
+		log.Printf("Failed to parse command string: %s, error: %v", cleanInput, err)
 		return nil, fmt.Errorf("parse error: %v", err)
 	}
 

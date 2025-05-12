@@ -33,8 +33,8 @@ func TestOrOperator(t *testing.T) {
 		{
 			name:        "Complex AND with OR operators",
 			input:       "false && echo nothing-here || echo this-should-be-printed",
-			expected:    "nothing-here", // Based on actual shell behavior
-			notExpected: "",
+			expected:    "this-should-be-printed", // Correct shell behavior - first command fails, second runs
+			notExpected: "nothing-here",
 		},
 		{
 			name:     "Chain of operators",

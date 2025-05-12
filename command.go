@@ -54,71 +54,142 @@ func (cmd *Command) Run() {
 	cmd.TTY = os.Getenv("TTY")
 	cmd.EUID = os.Geteuid()
 
-	// Execute all commands in the command chain
-	for _, block := range cmd.Command.LogicalBlocks {
-		// Execute the first pipeline in the logical block
-		cmd.executePipeline(block.FirstPipeline)
+	// Execute all LogicalBlocks (commands separated by semicolons)
+	for blockIndex, block := range cmd.Command.LogicalBlocks {
+		// Debug the current command being executed
+		if os.Getenv("GOSH_DEBUG") != "" {
+			fmt.Fprintf(cmd.Stderr, "Executing block %d: %s\n", blockIndex,
+				parser.FormatCommand(&parser.Command{LogicalBlocks: []*parser.LogicalBlock{block}}))
+		}
+
+		// Execute the first pipeline in the block
+		cmd.executePipelineImproved(block.FirstPipeline)
 		var returnCode int = cmd.ReturnCode
 
+		// Process any logical operators (AND/OR) that follow
+		for i := 0; i < len(block.RestPipelines); i++ {
+			opPipeline := block.RestPipelines[i]
+
+			// Process based on the operator type
+			switch opPipeline.Operator {
+			case "&&":
+				// AND: Only execute if previous was successful (return code 0)
+				if returnCode == 0 {
+					cmd.executePipelineImproved(opPipeline.Pipeline)
+					returnCode = cmd.ReturnCode
+				}
+			case "||":
+				// OR: Only execute if previous failed (non-zero return code)
+				if returnCode != 0 {
+					cmd.executePipelineImproved(opPipeline.Pipeline)
+					returnCode = cmd.ReturnCode
+				}
+			}
+		}
+
+		// Set the final return code for this block
+		cmd.ReturnCode = returnCode
+	}
+
+	cmd.EndTime = time.Now()
+	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+}
+
+// RunWithSemicolons is a legacy function, replaced by the improved Run implementation
+// This function is kept for reference only and shouldn't be called directly
+func (cmd *Command) RunWithSemicolons() {
+	cmd.StartTime = time.Now()
+	cmd.TTY = os.Getenv("TTY")
+	cmd.EUID = os.Geteuid()
+
+	// Execute all LogicalBlocks (commands separated by semicolons)
+	for blockIndex, block := range cmd.Command.LogicalBlocks {
+		// Process the logical block using the existing logic in command.go
+		// but scope it to just this block
+
+		// This is a critical part: for the builtins to work properly,
+		// we need to put the current block as the ONLY logical block in the command
+		singleBlockCmd := &parser.Command{
+			LogicalBlocks: []*parser.LogicalBlock{block},
+		}
+
+		// Create a scoped command for this logical block
+		blockCmd := &Command{
+			Command:    singleBlockCmd,
+			Stdin:      cmd.Stdin,
+			Stdout:     cmd.Stdout,
+			Stderr:     cmd.Stderr,
+			JobManager: cmd.JobManager,
+		}
+
+		// Debug the current command being executed
+		if os.Getenv("GOSH_DEBUG") != "" {
+			fmt.Fprintf(cmd.Stderr, "Executing block %d: %s\n", blockIndex,
+				parser.FormatCommand(blockCmd.Command))
+		}
+
+		// For simpler commands, don't use our complex scoping - fallback to original logic
+		// which is known to work for simple commands and logical operators
+		if len(cmd.Command.LogicalBlocks) == 1 {
+			// Execute the block directly with the original logic
+			// Execute the first pipeline in the logical block
+			cmd.executePipeline(block.FirstPipeline)
+			var returnCode int = cmd.ReturnCode
+
+			// Process the rest of the pipelines based on operator and previous result
+			for _, opPipeline := range block.RestPipelines {
+				// Check the operator and decide whether to execute the next pipeline
+				if opPipeline.Operator == "&&" {
+					// AND: Only execute if previous was successful (return code 0)
+					if returnCode == 0 {
+						cmd.executePipeline(opPipeline.Pipeline)
+						returnCode = cmd.ReturnCode
+					}
+				} else if opPipeline.Operator == "||" {
+					// OR: Only execute if previous failed (non-zero return code)
+					if returnCode != 0 {
+						cmd.executePipeline(opPipeline.Pipeline)
+						returnCode = cmd.ReturnCode
+					}
+				}
+			}
+
+			// Set the return code for this block
+			cmd.ReturnCode = returnCode
+
+			// Skip the remainder of the logic for simple cases
+			continue
+		}
+
+		// For multi-block commands (with semicolons), use the scoped approach
+		// Execute the first pipeline in the logical block
+		blockCmd.executePipeline(block.FirstPipeline)
+		var returnCode int = blockCmd.ReturnCode
+
 		// Process the rest of the pipelines based on operator and previous result
-		for i, opPipeline := range block.RestPipelines {
+		for _, opPipeline := range block.RestPipelines {
 			// Check the operator and decide whether to execute the next pipeline
 			if opPipeline.Operator == "&&" {
 				// AND: Only execute if previous was successful (return code 0)
 				if returnCode == 0 {
-					cmd.executePipeline(opPipeline.Pipeline)
-					returnCode = cmd.ReturnCode
-				} else {
-					// If AND condition fails, skip straight to the next OR operator if there is one
-					// This ensures proper handling of constructs like "false && echo 'skip' || echo 'run'"
-
-					// Skip ahead to the next OR operator
-					for j := i + 1; j < len(block.RestPipelines); j++ {
-						if block.RestPipelines[j].Operator == "||" {
-							// Found an OR operator, execute it if the previous condition failed
-							if returnCode != 0 {
-								fmt.Fprintf(cmd.Stderr, "DEBUG-OR: (after failed AND) Pipeline has %d commands\n",
-									len(block.RestPipelines[j].Pipeline.Commands))
-								if len(block.RestPipelines[j].Pipeline.Commands) > 0 {
-									fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Command parts: %v\n",
-										block.RestPipelines[j].Pipeline.Commands[0].Parts)
-								}
-								cmd.executePipeline(block.RestPipelines[j].Pipeline)
-								returnCode = cmd.ReturnCode
-								i = j // Skip ahead to this position
-							}
-							break
-						}
-					}
+					blockCmd.executePipeline(opPipeline.Pipeline)
+					returnCode = blockCmd.ReturnCode
 				}
 			} else if opPipeline.Operator == "||" {
 				// OR: Only execute if previous failed (non-zero return code)
 				if returnCode != 0 {
-					// Debug the OR execution
-					fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Pipeline has %d commands\n", len(opPipeline.Pipeline.Commands))
-					if len(opPipeline.Pipeline.Commands) > 0 {
-						fmt.Fprintf(cmd.Stderr, "DEBUG-OR: Command parts: %v\n", opPipeline.Pipeline.Commands[0].Parts)
-					}
-					cmd.executePipeline(opPipeline.Pipeline)
-					returnCode = cmd.ReturnCode
-
-					// Special handling for "OR with AND" pattern
-					// After executing OR, check if there's an AND that follows it
-					// The TestOrWithAnd test is failing because we need to explicitly handle this case
-					if returnCode == 0 && i+1 < len(block.RestPipelines) && block.RestPipelines[i+1].Operator == "&&" {
-						nextPipeline := block.RestPipelines[i+1]
-						fmt.Fprintf(cmd.Stderr, "DEBUG-OR-AND: Found AND after successful OR, executing\n")
-						cmd.executePipeline(nextPipeline.Pipeline)
-						returnCode = cmd.ReturnCode
-						i++ // Skip the AND operator in the next iteration
-					}
+					blockCmd.executePipeline(opPipeline.Pipeline)
+					returnCode = blockCmd.ReturnCode
 				}
-				// If previous succeeded, skip this pipeline
 			}
 		}
 
-		// Set the final return code
+		// Set the return code for this block and propagate to parent command
+		blockCmd.ReturnCode = returnCode
 		cmd.ReturnCode = returnCode
+
+		// Each command separated by semicolons is independently executed
+		// The final return code will be from the last command
 	}
 
 	cmd.EndTime = time.Now()
