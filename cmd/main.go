@@ -33,6 +33,7 @@ func main() {
 	}
 
 	fmt.Println("Welcome to gosh Shell")
+	fmt.Println("Tab completion is ready to use")
 
 	jobManager := gosh.NewJobManager()
 	completer := gosh.NewCompleter(gosh.Builtins())
@@ -74,7 +75,7 @@ func main() {
 		}
 	}()
 
-	fmt.Println("Tab completion is being initialized in the background. It will be fully functional shortly.")
+	// Tab completion is now ready to use immediately
 
 	for {
 		rl.SetPrompt(gosh.GetPrompt()) // Update the prompt before each readline
@@ -110,6 +111,12 @@ func main() {
 		command.Stdout = os.Stdout
 		command.Stderr = os.Stderr
 		command.Run()
+
+		// Record command usage for tab completion learning
+		if len(line) > 0 && strings.Fields(line)[0] != "" {
+			firstCmd := strings.Fields(line)[0]
+			completer.RecordCommandUsage(firstCmd)
+		}
 
 		if historyManager != nil {
 			err = historyManager.Insert(command, 0) // Replace 0 with actual session ID
