@@ -30,9 +30,10 @@ The following tasks have been identified as the next items to implement, based o
 
 ### High Priority
 
-□ **Command Separators**
-   - Implement command separators (`;`) to allow multiple independent commands in a single line
-   - Add proper parsing and execution of separated commands
+□ **Advanced Redirection**
+   - Support for file descriptor redirection (2>, &>, etc.)
+   - Append redirection for error output (2>>)
+   - File descriptor duplication (2>&1)
 
 ### Medium Priority
 
@@ -54,11 +55,24 @@ The following tasks have been identified as the next items to implement, based o
    - Implement command substitution using backticks or `$(command)` syntax
    - Allow output of one command to be used as arguments for another
 
+□ **Array Support**
+   - Implement array variables
+   - Add array operations (indexing, slicing, iteration)
+
+□ **Here-Documents**
+   - Support for here-docs (`<<EOF`) and here-strings (`<<<`)
+   - Multi-line string input for commands
+
 ### Low Priority
 
 □ **Environment Variable Expansion**
    - Enhance environment variable support
    - Add variable substitution in more contexts
+   - Add parameter expansion (`${var:-default}`, `${var:=value}`, etc.)
+
+□ **Process Substitution**
+   - Implement process substitution (`<()` and `>()`)
+   - Allow using command output as file input without temporary files
 
 □ **Signal Handling**
     - Improve handling of various signals (SIGINT, SIGTSTP, etc.)
@@ -67,6 +81,10 @@ The following tasks have been identified as the next items to implement, based o
 □ **Tab Completion Enhancements**
     - Expand tab completion to handle more complex scenarios
     - Add completion for command options and arguments
+
+□ **Shell Functions**
+    - Add support for user-defined shell functions
+    - Enable function arguments and return values
 
 ## M28 Lisp Integration
 
@@ -90,6 +108,14 @@ The following tasks have been identified as the next items to implement, based o
 □ **Configuration System**
     - Add support for a config file (similar to .bashrc)
     - Allow customization of shell behavior through config
+
+□ **Command Line Editing**
+    - Enhanced line editing capabilities
+    - Emacs/vi editing modes
+
+□ **Prompt Customization**
+    - More variables and expansion options for prompts
+    - Support for ANSI colors and styling
 
 □ **Documentation**
     - Add comprehensive documentation for all features
@@ -116,3 +142,4 @@ The following tasks have been identified as the next items to implement, based o
 - Basic tab completion
 - Built-in commands
 - M28 Lisp integration
+- Command separators (`;`) for multiple commands
