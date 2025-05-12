@@ -49,6 +49,11 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	}, nil
 }
 
+// ParseCommand is a helper function to parse command strings for testing or external use
+func ParseCommand(input string) (*parser.Command, error) {
+	return parser.Parse(input)
+}
+
 func (cmd *Command) Run() {
 	cmd.StartTime = time.Now()
 	cmd.TTY = os.Getenv("TTY")

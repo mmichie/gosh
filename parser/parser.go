@@ -168,3 +168,10 @@ func formatPipeline(pipeline *Pipeline) string {
 
 	return result.String()
 }
+
+// SplitCommand splits a command string into parts (command and arguments)
+func SplitCommand(cmdString string) []string {
+	// Simple tokenization - this doesn't handle quotes or escapes properly
+	// but is good enough for extracting the base command name
+	return strings.Fields(cmdString)
+}
