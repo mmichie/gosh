@@ -3,6 +3,7 @@ package gosh
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -324,42 +325,164 @@ func unalias(cmd *Command) error {
 }
 
 func jobs(cmd *Command) error {
+	// Check if JobManager is nil
+	if cmd.JobManager == nil {
+		_, err := fmt.Fprintln(cmd.Stdout, "No background jobs")
+		return err
+	}
+
 	jobList := cmd.JobManager.ListJobs()
-	for _, job := range jobList {
-		_, err := fmt.Fprintf(cmd.Stdout, "[%d] %s %s\n", job.ID, job.Status, job.Command)
+
+	if len(jobList) == 0 {
+		_, err := fmt.Fprintln(cmd.Stdout, "No background jobs")
+		return err
+	}
+
+	// Sort jobs by ID (reverse order, newest first)
+	sort.Slice(jobList, func(i, j int) bool {
+		return jobList[i].ID > jobList[j].ID
+	})
+
+	// Find the most recent job to mark it with a + sign
+	for i, job := range jobList {
+		indicator := " "
+		if i == 0 {
+			// Most recent job gets a + indicator
+			indicator = "+"
+		} else if i == 1 {
+			// Second most recent job gets a - indicator
+			indicator = "-"
+		}
+
+		// Format the status nicely
+		statusDisplay := ""
+		switch job.Status {
+		case "Running":
+			statusDisplay = "Running"
+		case "Stopped":
+			statusDisplay = "Stopped"
+		case "Done":
+			statusDisplay = "Done"
+		case "Foreground":
+			statusDisplay = "Running in foreground"
+		}
+
+		// Print the job information with proper formatting
+		_, err := fmt.Fprintf(cmd.Stdout, "[%d]%s %s\t\t%s\n",
+			job.ID, indicator, statusDisplay, job.Command)
 		if err != nil {
 			return err
 		}
 	}
+
 	return nil
 }
 
 func fg(cmd *Command) error {
-	if len(cmd.Command.LogicalBlocks) == 0 ||
-		cmd.Command.LogicalBlocks[0].FirstPipeline == nil ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) == 0 ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) < 2 {
-		return fmt.Errorf("Usage: fg <job_id>")
+	// Check if JobManager is nil
+	if cmd.JobManager == nil {
+		return fmt.Errorf("No job manager available")
 	}
-	jobID, err := strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
-	if err != nil {
-		return fmt.Errorf("Invalid job ID")
+
+	// Default to the most recent job if no job ID is provided
+	var jobID int
+	var err error
+
+	// First check if an argument was provided
+	hasArg := false
+	if cmd.Command != nil && len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) >= 2 {
+		// A job ID was provided
+		jobID, err = strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
+		if err != nil {
+			return fmt.Errorf("Invalid job ID: %v", err)
+		}
+		hasArg = true
 	}
+
+	// If no argument was provided, find the most recent job
+	if !hasArg {
+		jobList := cmd.JobManager.ListJobs()
+		if len(jobList) == 0 {
+			return fmt.Errorf("No background jobs")
+		}
+
+		// Sort jobs by ID (newest first)
+		sort.Slice(jobList, func(i, j int) bool {
+			return jobList[i].ID > jobList[j].ID
+		})
+
+		// Use the first job (most recent)
+		jobID = jobList[0].ID
+	}
+
+	// Bring the job to the foreground
 	return cmd.JobManager.ForegroundJob(jobID)
 }
 
 func bg(cmd *Command) error {
-	if len(cmd.Command.LogicalBlocks) == 0 ||
-		cmd.Command.LogicalBlocks[0].FirstPipeline == nil ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) == 0 ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) < 2 {
-		return fmt.Errorf("Usage: bg <job_id>")
+	// Check if JobManager is nil
+	if cmd.JobManager == nil {
+		return fmt.Errorf("No job manager available")
 	}
-	jobID, err := strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
+
+	// Default to the most recent stopped job if no job ID is provided
+	var jobID int
+	var err error
+
+	// First check if an argument was provided
+	hasArg := false
+	if cmd.Command != nil && len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) >= 2 {
+		// A job ID was provided
+		jobID, err = strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
+		if err != nil {
+			return fmt.Errorf("Invalid job ID: %v", err)
+		}
+		hasArg = true
+	}
+
+	// If no argument was provided, find the most recent stopped job
+	if !hasArg {
+		jobList := cmd.JobManager.ListJobs()
+		if len(jobList) == 0 {
+			return fmt.Errorf("No background jobs")
+		}
+
+		// Find the most recent stopped job
+		var stoppedJob *Job
+		for _, job := range jobList {
+			if job.Status == "Stopped" {
+				if stoppedJob == nil || job.ID > stoppedJob.ID {
+					stoppedJob = job
+				}
+			}
+		}
+
+		if stoppedJob == nil {
+			return fmt.Errorf("No stopped jobs")
+		}
+
+		jobID = stoppedJob.ID
+	}
+
+	// Resume the job in the background
+	err = cmd.JobManager.BackgroundJob(jobID)
 	if err != nil {
-		return fmt.Errorf("Invalid job ID")
+		return err
 	}
-	return cmd.JobManager.BackgroundJob(jobID)
+
+	// Get the job to print its information
+	job, exists := cmd.JobManager.GetJob(jobID)
+	if exists {
+		fmt.Fprintf(cmd.Stdout, "[%d]+ %s &\n", job.ID, job.Command)
+	}
+
+	return nil
 }
 
 // Builtins returns a copy of the builtins map

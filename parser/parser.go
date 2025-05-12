@@ -15,6 +15,7 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Or", Pattern: `\|\|`},     // Add OR operator pattern before Pipe
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
+	{Name: "Background", Pattern: `&`}, // Add & for background execution
 	{Name: "Redirect", Pattern: `>>|>|<`},
 	{Name: "Quote", Pattern: `'[^']*'|"[^"]*"`},
 	{Name: "Word", Pattern: `[^\s|><&'";]+`}, // Updated to exclude semicolons
@@ -39,8 +40,9 @@ type Pipeline struct {
 }
 
 type SimpleCommand struct {
-	Parts     []string    `parser:"@(Word | Quote)+"`
-	Redirects []*Redirect `parser:"@@*"`
+	Parts      []string    `parser:"@(Word | Quote)+"`
+	Redirects  []*Redirect `parser:"@@*"`
+	Background bool        `parser:"@Background?"`
 }
 
 type Redirect struct {
@@ -146,6 +148,11 @@ func formatPipeline(pipeline *Pipeline) string {
 			result.WriteString(redirect.Type)
 			result.WriteString(" ")
 			result.WriteString(redirect.File)
+		}
+
+		// Add & symbol if the command should run in the background
+		if simpleCmd.Background {
+			result.WriteString(" &")
 		}
 	}
 	return result.String()

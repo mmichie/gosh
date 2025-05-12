@@ -260,10 +260,11 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands
 			tmpCmd := &Command{
-				Command: cmd.Command,
-				Stdin:   lastOutput,
-				Stdout:  cmd.Stdout,
-				Stderr:  cmd.Stderr,
+				Command:    cmd.Command,
+				Stdin:      lastOutput,
+				Stdout:     cmd.Stdout,
+				Stderr:     cmd.Stderr,
+				JobManager: cmd.JobManager, // Pass JobManager to builtins
 			}
 			err := builtin(tmpCmd)
 			if err != nil {
@@ -287,12 +288,58 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			execCmd.Stdout = cmd.Stdout
 			execCmd.Stderr = cmd.Stderr
 
-			err := execCmd.Run()
-			if err != nil {
-				fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
-				cmd.ReturnCode = 1
+			// Check if the command should run in the background
+			if simpleCmd.Background && cmd.JobManager != nil {
+				// Start the command but don't wait for it to complete
+				err := execCmd.Start()
+				if err != nil {
+					fmt.Fprintf(cmd.Stderr, "Error starting background command: %v\n", err)
+					cmd.ReturnCode = 1
+				} else {
+					// Add the command to the job manager
+					job := cmd.JobManager.AddJob(parser.FormatCommand(&parser.Command{
+						LogicalBlocks: []*parser.LogicalBlock{
+							{
+								FirstPipeline: &parser.Pipeline{
+									Commands: []*parser.SimpleCommand{simpleCmd},
+								},
+							},
+						},
+					}), execCmd)
+
+					// Print job information
+					fmt.Fprintf(cmd.Stdout, "[%d] %d\n", job.ID, execCmd.Process.Pid)
+
+					// Launch a goroutine to monitor the command completion
+					go func(job *Job) {
+						err := execCmd.Wait()
+						if err != nil {
+							// Update job status on completion
+							cmd.JobManager.mu.Lock()
+							job.Status = "Done"
+							cmd.JobManager.mu.Unlock()
+						} else {
+							// Update job status on completion
+							cmd.JobManager.mu.Lock()
+							job.Status = "Done"
+							cmd.JobManager.mu.Unlock()
+						}
+
+						// Notify when the job completes (next prompt)
+						fmt.Printf("\n[%d]+ Done %s\n", job.ID, job.Command)
+					}(job)
+
+					cmd.ReturnCode = 0
+				}
 			} else {
-				cmd.ReturnCode = 0
+				// Run command in foreground
+				err := execCmd.Run()
+				if err != nil {
+					fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
+					cmd.ReturnCode = 1
+				} else {
+					cmd.ReturnCode = 0
+				}
 			}
 			handled = true
 		}
@@ -381,10 +428,11 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			// Handle builtin commands
 			var output bytes.Buffer
 			tmpCmd := &Command{
-				Command: cmd.Command,
-				Stdin:   lastOutput,
-				Stdout:  &output,
-				Stderr:  cmd.Stderr,
+				Command:    cmd.Command,
+				Stdin:      lastOutput,
+				Stdout:     &output,
+				Stderr:     cmd.Stderr,
+				JobManager: cmd.JobManager, // Pass JobManager to builtins
 			}
 			err := builtin(tmpCmd)
 			if err != nil {

@@ -2,7 +2,9 @@ package gosh
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
 	"syscall"
 )
@@ -23,10 +25,56 @@ type JobManager struct {
 }
 
 func NewJobManager() *JobManager {
-	return &JobManager{
+	jm := &JobManager{
 		jobs:   make(map[int]*Job),
 		nextID: 1,
 	}
+
+	// Set up signal handling for the job manager
+	go jm.handleSignals()
+
+	return jm
+}
+
+// handleSignals sets up signal handling for the job manager
+func (jm *JobManager) handleSignals() {
+	// Create channel to receive signals
+	sigChan := make(chan os.Signal, 1)
+
+	// Register for signals that we want to handle
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGTSTP, syscall.SIGCONT)
+
+	// Handle signals in a separate goroutine
+	go func() {
+		for sig := range sigChan {
+			switch sig {
+			case syscall.SIGINT:
+				// Ctrl+C - Forward to foreground job or exit
+				fgJob := jm.GetForegroundJob()
+				if fgJob != nil {
+					fgJob.Cmd.Process.Signal(syscall.SIGINT)
+				}
+
+			case syscall.SIGTSTP:
+				// Ctrl+Z - Stop the foreground job
+				jm.StopForegroundJob()
+
+			case syscall.SIGCONT:
+				// Continue - Usually handled by fg/bg commands
+				// No action needed here
+
+			case syscall.SIGTERM:
+				// Forward SIGTERM to all jobs
+				jm.mu.Lock()
+				for _, job := range jm.jobs {
+					if job.Cmd != nil && job.Cmd.Process != nil {
+						job.Cmd.Process.Signal(syscall.SIGTERM)
+					}
+				}
+				jm.mu.Unlock()
+			}
+		}
+	}()
 }
 
 func (jm *JobManager) AddJob(command string, cmd *exec.Cmd) *Job {
@@ -146,16 +194,39 @@ func (jm *JobManager) BackgroundJob(id int) error {
 
 func (jm *JobManager) ReapChildren() {
 	for {
-		pid, _ := syscall.Wait4(-1, nil, syscall.WNOHANG, nil)
-		if pid <= 0 {
+		var status syscall.WaitStatus
+		pid, err := syscall.Wait4(-1, &status, syscall.WNOHANG, nil)
+		if pid <= 0 || err != nil {
 			break
 		}
 
 		jm.mu.Lock()
 		for id, job := range jm.jobs {
-			if job.Cmd.Process.Pid == pid {
-				delete(jm.jobs, id)
-				fmt.Printf("[%d]+ Done %s\n", job.ID, job.Command)
+			if job.Cmd != nil && job.Cmd.Process != nil && job.Cmd.Process.Pid == pid {
+				// Check the exit status
+				if status.Exited() {
+					// Normal exit
+					exitCode := status.ExitStatus()
+					if exitCode == 0 {
+						fmt.Printf("\n[%d]+ Done %s\n", job.ID, job.Command)
+					} else {
+						fmt.Printf("\n[%d]+ Exit %d %s\n", job.ID, exitCode, job.Command)
+					}
+					delete(jm.jobs, id)
+				} else if status.Signaled() {
+					// Process terminated by signal
+					sig := status.Signal()
+					fmt.Printf("\n[%d]+ %s %s\n", job.ID, sig, job.Command)
+					delete(jm.jobs, id)
+				} else if status.Stopped() {
+					// Process was stopped (Ctrl+Z)
+					job.Status = "Stopped"
+					fmt.Printf("\n[%d]+ Stopped %s\n", job.ID, job.Command)
+				} else if status.Continued() {
+					// Process was continued (fg/bg)
+					job.Status = "Running"
+					fmt.Printf("\n[%d]+ Continued %s\n", job.ID, job.Command)
+				}
 				break
 			}
 		}
