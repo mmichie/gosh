@@ -27,7 +27,7 @@ type CompletionCycle struct {
 // SmartCompleter extends the basic Completer with argument history and cycling
 type SmartCompleter struct {
 	*Completer
-	ArgHistory    *ArgHistoryDB
+	ArgHistory    ArgHistoryStorage
 	currentCycle  *CompletionCycle
 	cycleLock     sync.Mutex
 	lastLine      string // Store the last line to detect when input changes
@@ -36,7 +36,7 @@ type SmartCompleter struct {
 }
 
 // NewSmartCompleter creates a new smart completer with argument history
-func NewSmartCompleter(builtins map[string]func(cmd *Command) error, argHistory *ArgHistoryDB) *SmartCompleter {
+func NewSmartCompleter(builtins map[string]func(cmd *Command) error, argHistory ArgHistoryStorage) *SmartCompleter {
 	return &SmartCompleter{
 		Completer:     NewCompleter(builtins),
 		ArgHistory:    argHistory,

@@ -52,7 +52,7 @@ func main() {
 	var completer readline.AutoCompleter
 
 	// Create argument history database for smart argument completion
-	argHistory, err := gosh.NewArgHistoryDB("")
+	argHistory, err := gosh.NewArgHistory("")
 	if err != nil {
 		log.Printf("Warning: Could not initialize argument history: %v", err)
 		// If we can't load the argument history, fall back to basic completion
@@ -180,11 +180,19 @@ func main() {
 	// Save argument history database before exiting
 	if argHistory != nil {
 		argHistory.Save()
+		argHistory.Close()
 	}
 }
 
 func executeCommand(cmd string) {
 	jobManager := gosh.NewJobManager()
+
+	// Create argument history for command line mode
+	argHistory, err := gosh.NewArgHistory("")
+	if err != nil {
+		log.Printf("Warning: Could not initialize argument history: %v", err)
+	}
+
 	command, err := gosh.NewCommand(cmd, jobManager)
 	if err != nil {
 		log.Fatalf("Error creating command: %v", err)
@@ -194,4 +202,15 @@ func executeCommand(cmd string) {
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
 	command.Run()
+
+	// Record argument usage for the -c command
+	if argHistory != nil && cmd != "" {
+		parts := strings.Fields(cmd)
+		if len(parts) > 1 {
+			firstCmd := parts[0]
+			argHistory.RecordArgUsage(firstCmd, parts[1:])
+			argHistory.Save()
+			argHistory.Close()
+		}
+	}
 }
