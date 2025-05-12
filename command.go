@@ -135,6 +135,21 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	// If there's only one command, check for simple redirection
 	if len(pipeline.Commands) == 1 {
 		simpleCmd := pipeline.Commands[0]
+
+		// Check if the command is an M28 Lisp expression first
+		cmdString := strings.Join(simpleCmd.Parts, " ")
+		if m28adapter.IsLispExpression(cmdString) {
+			result, err := m28Interpreter.Execute(cmdString)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "M28 error in '%s': %v\n", cmdString, err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			fmt.Fprintln(cmd.Stdout, result)
+			cmd.ReturnCode = 0
+			return true
+		}
+
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
 
 		// Handle input redirection
