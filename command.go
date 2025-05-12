@@ -55,12 +55,7 @@ func (cmd *Command) Run() {
 	cmd.EUID = os.Geteuid()
 
 	// Execute all LogicalBlocks (commands separated by semicolons)
-	for blockIndex, block := range cmd.Command.LogicalBlocks {
-		// Debug the current command being executed
-		if os.Getenv("GOSH_DEBUG") != "" {
-			fmt.Fprintf(cmd.Stderr, "Executing block %d: %s\n", blockIndex,
-				parser.FormatCommand(&parser.Command{LogicalBlocks: []*parser.LogicalBlock{block}}))
-		}
+	for _, block := range cmd.Command.LogicalBlocks {
 
 		// Execute the first pipeline in the block
 		cmd.executePipelineImproved(block.FirstPipeline)
@@ -103,7 +98,7 @@ func (cmd *Command) RunWithSemicolons() {
 	cmd.EUID = os.Geteuid()
 
 	// Execute all LogicalBlocks (commands separated by semicolons)
-	for blockIndex, block := range cmd.Command.LogicalBlocks {
+	for _, block := range cmd.Command.LogicalBlocks {
 		// Process the logical block using the existing logic in command.go
 		// but scope it to just this block
 
@@ -120,12 +115,6 @@ func (cmd *Command) RunWithSemicolons() {
 			Stdout:     cmd.Stdout,
 			Stderr:     cmd.Stderr,
 			JobManager: cmd.JobManager,
-		}
-
-		// Debug the current command being executed
-		if os.Getenv("GOSH_DEBUG") != "" {
-			fmt.Fprintf(cmd.Stderr, "Executing block %d: %s\n", blockIndex,
-				parser.FormatCommand(blockCmd.Command))
 		}
 
 		// For simpler commands, don't use our complex scoping - fallback to original logic
@@ -491,7 +480,66 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 	}
 
-	// Wait for all commands to complete
+	// Manual background detection: if the last command in a pipeline has the background flag,
+	// treat the entire pipeline as background
+	if len(pipeline.Commands) > 0 && pipeline.Commands[len(pipeline.Commands)-1].Background {
+		pipeline.Background = true
+	}
+
+	// Check if the pipeline should run in the background
+	if pipeline.Background && cmd.JobManager != nil && len(cmds) > 0 {
+		// Create a descriptive command name for the pipeline
+		pipelineDesc := parser.FormatCommand(&parser.Command{
+			LogicalBlocks: []*parser.LogicalBlock{
+				{
+					FirstPipeline: pipeline,
+				},
+			},
+		})
+
+		// Add the first command to the job manager to track the pipeline
+		job := cmd.JobManager.AddJob(pipelineDesc, cmds[0])
+
+		// Print job information
+		fmt.Fprintf(cmd.Stdout, "[%d] %d\n", job.ID, cmds[0].Process.Pid)
+
+		// Launch a goroutine to manage the pipeline execution
+		go func(cmds []*exec.Cmd, pipes []*io.PipeWriter, job *Job) {
+			// Wait for all commands to complete
+			var err error
+			for i, execCmd := range cmds {
+				err = execCmd.Wait()
+				if err != nil {
+					// Don't report error for background processes
+					if i < len(cmds)-1 {
+						pipes[i].Close()
+					}
+				} else {
+					if i < len(cmds)-1 {
+						pipes[i].Close()
+					}
+				}
+			}
+
+			// Update job status on completion
+			cmd.JobManager.mu.Lock()
+			job.Status = "Done"
+			cmd.JobManager.mu.Unlock()
+
+			// Notify when the job completes (next prompt)
+			fmt.Printf("\n[%d]+ Done %s\n", job.ID, job.Command)
+
+			// Close any output files
+			if outputFile != nil {
+				outputFile.Close()
+			}
+		}(cmds, pipes, job)
+
+		cmd.ReturnCode = 0
+		return true
+	}
+
+	// For foreground pipelines, wait for all commands to complete
 	for i, execCmd := range cmds {
 		err := execCmd.Wait()
 		if err != nil {

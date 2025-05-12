@@ -36,7 +36,8 @@ type OpPipeline struct {
 }
 
 type Pipeline struct {
-	Commands []*SimpleCommand `parser:"@@ ( '|' @@ )*"`
+	Commands   []*SimpleCommand `parser:"@@ ( '|' @@ )*"`
+	Background bool             `parser:"@Background?"`
 }
 
 type SimpleCommand struct {
@@ -53,6 +54,7 @@ type Redirect struct {
 var parser = participle.MustBuild[Command](
 	participle.Lexer(shellLexer),
 	participle.Elide("Whitespace"),
+	participle.UseLookahead(2), // Increase lookahead to better handle & at the end of pipelines
 )
 
 func Parse(input string) (*Command, error) {
@@ -138,6 +140,8 @@ func FormatCommand(cmd *Command) string {
 
 func formatPipeline(pipeline *Pipeline) string {
 	var result strings.Builder
+
+	// Format each command in the pipeline
 	for j, simpleCmd := range pipeline.Commands {
 		if j > 0 {
 			result.WriteString(" | ")
@@ -150,10 +154,17 @@ func formatPipeline(pipeline *Pipeline) string {
 			result.WriteString(redirect.File)
 		}
 
-		// Add & symbol if the command should run in the background
+		// Add & symbol if the individual command should run in the background
+		// (This is for backward compatibility, but normally we'll use the pipeline background flag)
 		if simpleCmd.Background {
 			result.WriteString(" &")
 		}
 	}
+
+	// Add & symbol if the entire pipeline should run in the background
+	if pipeline.Background {
+		result.WriteString(" &")
+	}
+
 	return result.String()
 }
