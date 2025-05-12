@@ -20,11 +20,11 @@ The following tasks have been identified as the next items to implement, based o
    - Implemented a dedicated test case in `redirection_test.go` to verify the functionality
    - Fixed the integration test for file creation and content verification
 
-□ **Implement OR Operator (||)**
-   - Current issue: Shell doesn't support OR operators for conditional execution
-   - Update `parser/parser.go`: Add "Or" to the lexer rules with pattern `\|\|`
-   - Modify the command structures to support OR conditional chains
-   - Update command execution to run the second command only if the first fails
+✅ **Implemented OR Operator (||)**
+   - Added "Or" operator to the lexer rules with pattern `\|\|`
+   - Updated command structures to support OR conditional chains
+   - Implemented command execution to run the second command only if the first fails
+   - Added tests that verify OR operator functionality
 
 ## Core Shell Features
 
@@ -131,6 +131,7 @@ The following tasks have been identified as the next items to implement, based o
 - Basic command execution
 - Pipe operator (`|`) for command chaining
 - AND operator (`&&`) for conditional execution
+- OR operator (`||`) for conditional execution
 - Simple I/O redirection (`>`, `>>`, `<`)
 - Environment variables
 - Command history
