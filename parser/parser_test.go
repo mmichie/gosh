@@ -182,7 +182,7 @@ func TestProcessCommand(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			command, args, inputRedir, inputFile, outputRedir, outputFile := ProcessCommand(tc.input)
+			command, args, inputRedir, inputFile, outputRedir, outputFile, _, _, _ := ProcessCommand(tc.input)
 			if command != tc.expectedCommand {
 				t.Errorf("ProcessCommand() command = %v, want %v", command, tc.expectedCommand)
 			}

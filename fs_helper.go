@@ -23,14 +23,22 @@ func PrepareFileForRedirection(filename string, mode string) (*os.File, error) {
 		return nil, fmt.Errorf("error creating directories: %v", err)
 	}
 
-	// Open the file
+	// Open the file based on the redirection mode
 	var file *os.File
 	var err error
-	if mode == ">" {
+
+	// Handle different redirection modes
+	switch {
+	// Standard output truncate
+	case mode == ">" || mode == "2>" || mode == "&>":
 		file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	} else if mode == ">>" {
+
+	// Standard output append
+	case mode == ">>" || mode == "2>>" || mode == ">>&":
 		file, err = os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
-	} else {
+
+	// Unsupported modes
+	default:
 		return nil, fmt.Errorf("unsupported redirection mode: %s", mode)
 	}
 

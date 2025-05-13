@@ -215,7 +215,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			return true
 		}
 
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
@@ -387,7 +387,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 		simpleCmd = parsedCmd.LogicalBlocks[0].FirstPipeline.Commands[0]
 
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
@@ -607,10 +607,26 @@ func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.F
 	var file *os.File
 
 	switch redirectType {
+	// Standard output redirection (truncate)
 	case ">":
 		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+
+	// Standard output redirection (append)
 	case ">>":
 		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+
+	// Standard error redirection (truncate)
+	case "2>":
+		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+
+	// Standard error redirection (append)
+	case "2>>":
+		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0644)
+
+	// Combined output redirection (both stdout and stderr)
+	case "&>", ">&":
+		file, err = os.OpenFile(absPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
+
 	default:
 		return nil, fmt.Errorf("unknown redirection type: %s", redirectType)
 	}
@@ -642,4 +658,16 @@ func (cmd *Command) setupInputRedirection(filename string) (*os.File, error) {
 	}
 
 	return os.Open(absPath)
+}
+
+// setupFileDescriptorDuplication handles redirections like 2>&1 (stderr to stdout)
+func (cmd *Command) setupFileDescriptorDuplication(dupType string) error {
+	switch dupType {
+	case "2>&1":
+		// For 2>&1, redirect stderr to the same destination as stdout
+		// This is handled in the command execution by setting cmd.Stderr = cmd.Stdout
+		return nil
+	default:
+		return fmt.Errorf("unsupported file descriptor duplication: %s", dupType)
+	}
 }

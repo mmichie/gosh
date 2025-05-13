@@ -36,7 +36,7 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 			return true
 		}
 
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
 
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
@@ -55,6 +55,43 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 			lastOutput = inputFile
 		}
 
+		// Handle file descriptor duplication (2>&1)
+		var originalStderr io.Writer = cmd.Stderr
+		if fdDupType == "2>&1" {
+			// Set stderr to the same destination as stdout
+			err := cmd.setupFileDescriptorDuplication(fdDupType)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error setting up file descriptor duplication: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			cmd.Stderr = cmd.Stdout
+			defer func() {
+				cmd.Stderr = originalStderr
+			}()
+		}
+
+		// Handle stderr redirection
+		var stderrFile *os.File
+		if stderrRedirectType != "" && stderrFilename != "" && stderrRedirectType != "&>" && stderrRedirectType != ">&" {
+			var err error
+			stderrFile, err = cmd.setupOutputRedirection(stderrRedirectType, stderrFilename)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error setting up stderr redirection: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+
+			// Use the error file as stderr, but remember to close it at the end
+			cmd.Stderr = stderrFile
+			defer func() {
+				if stderrFile != nil {
+					stderrFile.Close()
+					cmd.Stderr = originalStderr
+				}
+			}()
+		}
+
 		// Handle output redirection
 		var originalStdout io.Writer = cmd.Stdout
 		if outputRedirectType != "" && outputFilename != "" {
@@ -68,6 +105,14 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 
 			// Use the output file as stdout, but remember to close it at the end
 			cmd.Stdout = outputFile
+
+			// For combined redirection (&> or >&), also redirect stderr to the same file
+			if outputRedirectType == "&>" || outputRedirectType == ">&" {
+				cmd.Stderr = outputFile
+				defer func() {
+					cmd.Stderr = originalStderr
+				}()
+			}
 		}
 
 		// Execute the command
@@ -171,7 +216,7 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 			handled = true
 		}
 
-		// Restore original stdout if changed
+		// Restore original stdout and stderr if changed
 		if outputFile != nil {
 			cmd.Stdout = originalStdout
 			outputFile.Close()
@@ -213,7 +258,7 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 		}
 
 		// Process the command
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
 		// Handle input redirection for the first command
 		if i == 0 && inputRedirectType == "<" && inputFilename != "" {

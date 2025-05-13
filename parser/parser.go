@@ -15,8 +15,8 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Or", Pattern: `\|\|`},     // Add OR operator pattern before Pipe
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
-	{Name: "Background", Pattern: `&`}, // Add & for background execution
-	{Name: "Redirect", Pattern: `>>|>|<`},
+	{Name: "Redirect", Pattern: `2>&1|&>|>&|2>>|2>|>>|>|<`}, // Support advanced redirection (order matters!)
+	{Name: "Background", Pattern: `&`},                      // Add & for background execution (after redirect)
 	{Name: "Quote", Pattern: `'[^']*'|"[^"]*"`},
 	{Name: "Word", Pattern: `[^\s|><&'";]+`}, // Updated to exclude semicolons
 })
@@ -89,9 +89,9 @@ func Parse(input string) (*Command, error) {
 	return command, nil
 }
 
-func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, string, string) {
+func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, string, string, string, string, string) {
 	if len(cmd.Parts) == 0 {
-		return "", []string{}, "", "", "", ""
+		return "", []string{}, "", "", "", "", "", "", ""
 	}
 
 	command := cmd.Parts[0]
@@ -101,20 +101,38 @@ func ProcessCommand(cmd *SimpleCommand) (string, []string, string, string, strin
 	if len(cmd.Parts) > 1 {
 		args = cmd.Parts[1:]
 	}
-	var inputRedirectType, inputFilename, outputRedirectType, outputFilename string
+	var inputRedirectType, inputFilename string
+	var outputRedirectType, outputFilename string
+	var stderrRedirectType, stderrFilename string
+	var fdDupType string
 
 	for _, redirect := range cmd.Redirects {
 		// Process redirection
 		if redirect.Type == "<" {
+			// Input redirection
 			inputRedirectType = redirect.Type
 			inputFilename = redirect.File
 		} else if redirect.Type == ">" || redirect.Type == ">>" {
+			// Standard output redirection
 			outputRedirectType = redirect.Type
 			outputFilename = redirect.File
+		} else if redirect.Type == "2>" || redirect.Type == "2>>" {
+			// Standard error redirection
+			stderrRedirectType = redirect.Type
+			stderrFilename = redirect.File
+		} else if redirect.Type == "&>" || redirect.Type == ">&" {
+			// Combined output redirection (both stdout and stderr)
+			outputRedirectType = redirect.Type
+			outputFilename = redirect.File
+			stderrRedirectType = redirect.Type
+			stderrFilename = redirect.File
+		} else if redirect.Type == "2>&1" {
+			// File descriptor duplication (stderr to stdout)
+			fdDupType = redirect.Type
 		}
 	}
 
-	return command, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename
+	return command, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType
 }
 
 func FormatCommand(cmd *Command) string {
