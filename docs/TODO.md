@@ -30,7 +30,7 @@ The following tasks have been identified as the next items to implement, based o
 
 ### High Priority
 
-□ **Advanced Redirection**
+✅ **Implemented: Advanced Redirection**
    - Support for file descriptor redirection (2>, &>, etc.)
    - Append redirection for error output (2>>)
    - File descriptor duplication (2>&1)

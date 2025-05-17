@@ -1,8 +1,8 @@
 module gosh
 
-go 1.22.5
+go 1.23.0
 
-toolchain go1.24.2
+toolchain go1.24.3
 
 require (
 	github.com/alecthomas/participle/v2 v2.1.1
@@ -12,7 +12,6 @@ require (
 	github.com/mmichie/m28 v0.0.0
 )
 
-require golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5 // indirect
+require golang.org/x/sys v0.33.0 // indirect
 
 replace github.com/mmichie/m28 => ../m28
-
