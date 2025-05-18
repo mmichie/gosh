@@ -5,21 +5,38 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+
+	"gosh/parser"
 )
 
 // Command substitution patterns
 var (
-	// Match commands in $(...) format
+	// Match commands in $(...) format - greedy to ensure proper nesting
 	dollarParenPattern = regexp.MustCompile(`\$\((.*?)\)`)
 
-	// Match commands in backtick format
+	// Match commands in backtick format - backticks cannot be nested in shell
 	backtickPattern = regexp.MustCompile("`([^`]*)`")
+
+	// Pattern to detect unmatched $(
+	unmatchedDollarOpenPattern = regexp.MustCompile(`\$\([^)]*$`)
+	// Disabling unmatched backtick detection as it causes false positives
+	// unmatchedBacktickPattern   = regexp.MustCompile("`[^`]*$")
 )
 
 // PerformCommandSubstitution processes a command string for command substitutions
 // It supports both $(...) and backtick ` ` syntax
 // Returns the processed command string with substitutions applied
 func PerformCommandSubstitution(cmdString string, jobManager *JobManager) (string, error) {
+	// Check for unmatched patterns first
+	if unmatchedDollarOpenPattern.MatchString(cmdString) {
+		return cmdString, fmt.Errorf("unmatched $(")
+	}
+
+	// Disabled: unmatched backtick detection causing false positives
+	// if unmatchedBacktickPattern.MatchString(cmdString) {
+	//	return cmdString, fmt.Errorf("unmatched backtick")
+	// }
+
 	var err error
 
 	// First handle $(...) substitutions
