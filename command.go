@@ -275,6 +275,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			handled = true
 		} else {
 			// Handle external command
+			args = ExpandWildcards(args)
 			execCmd := exec.Command(cmdName, args...)
 			gs := GetGlobalState()
 			execCmd.Dir = gs.GetCWD()
@@ -454,6 +455,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			}
 		} else {
 			// Handle external commands
+			args = ExpandWildcards(args)
 			execCmd := exec.Command(cmdName, args...)
 			gs := GetGlobalState()
 			execCmd.Dir = gs.GetCWD()

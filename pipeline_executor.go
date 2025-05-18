@@ -38,6 +38,9 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
 
+		// Expand wildcards in arguments
+		args = ExpandWildcards(args)
+
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
 			var err error
@@ -153,6 +156,7 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 			handled = true
 		} else {
 			// Handle external command
+			args = ExpandWildcards(args)
 			execCmd := exec.Command(cmdName, args...)
 			gs := GetGlobalState()
 			execCmd.Dir = gs.GetCWD()
@@ -260,6 +264,9 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 		// Process the command
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
+		// Expand wildcards in arguments
+		args = ExpandWildcards(args)
+
 		// Handle input redirection for the first command
 		if i == 0 && inputRedirectType == "<" && inputFilename != "" {
 			var err error
@@ -341,6 +348,7 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 			}
 		} else {
 			// Handle external commands
+			args = ExpandWildcards(args)
 			execCmd := exec.Command(cmdName, args...)
 			gs := GetGlobalState()
 			execCmd.Dir = gs.GetCWD()

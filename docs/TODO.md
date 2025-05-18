@@ -42,9 +42,11 @@ The following tasks have been identified as the next items to implement, based o
    - Implement basic flow control structures (if/else, loops)
    - Support for variables and basic script functions
 
-□ **Wildcard Expansion**
-   - Improve glob pattern support for file matching
-   - Add support for common wildcard patterns (`*`, `?`, `[...]`)
+✅ **Implemented: Wildcard Expansion**
+   - Improved glob pattern support for file matching
+   - Added support for common wildcard patterns (`*`, `?`, `[...]`)
+   - Added support for brace expansion (`{alt1,alt2,...}`)
+   - Added home directory expansion (`~`)
 
 □ **Command Substitution**
    - Implement command substitution using backticks or `$(command)` syntax
