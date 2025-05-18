@@ -36,10 +36,25 @@ func init() {
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
-	parsedCmd, err := parser.Parse(input)
+	// Perform command substitution before parsing
+	// This replaces $(...) and `...` with their command output
+	processedInput, err := PerformCommandSubstitution(input, jobManager)
+	if err != nil {
+		return nil, fmt.Errorf("command substitution error: %v", err)
+	}
+
+	// Evaluate M28 Lisp expressions
+	processedInput, err = evaluateM28InCommand(processedInput)
+	if err != nil {
+		return nil, fmt.Errorf("M28 evaluation error: %v", err)
+	}
+
+	// Parse the processed command string
+	parsedCmd, err := parser.Parse(processedInput)
 	if err != nil {
 		return nil, err
 	}
+
 	return &Command{
 		Command:    parsedCmd,
 		Stdin:      os.Stdin,

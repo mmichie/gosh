@@ -48,9 +48,11 @@ The following tasks have been identified as the next items to implement, based o
    - Added support for brace expansion (`{alt1,alt2,...}`)
    - Added home directory expansion (`~`)
 
-□ **Command Substitution**
-   - Implement command substitution using backticks or `$(command)` syntax
-   - Allow output of one command to be used as arguments for another
+✅ **Implemented: Command Substitution**
+   - Implemented command substitution using backticks or `$(command)` syntax
+   - Added ability to use output of one command as arguments for another
+   - Added support for nested command substitutions
+   - Implemented error handling for failed command substitutions
 
 □ **Array Support**
    - Implement array variables
