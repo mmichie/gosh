@@ -15,7 +15,7 @@ import (
 // that properly handles logical operators and command separators
 func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 	var outputFile *os.File
-	var inputFile *os.File
+	var inputCleanup func()
 	lastOutput := cmd.Stdin
 
 	// If there's only one command, check for simple redirection
@@ -44,18 +44,13 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
 			var err error
-			inputFile, err = cmd.setupInputRedirection(inputFilename)
+			lastOutput, inputCleanup, err = cmd.setupInputRedirection(inputFilename)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
 				cmd.ReturnCode = 1
 				return false
 			}
-			defer func() {
-				if inputFile != nil {
-					inputFile.Close()
-				}
-			}()
-			lastOutput = inputFile
+			defer inputCleanup()
 		}
 
 		// Handle file descriptor duplication (2>&1)
@@ -270,18 +265,13 @@ func (cmd *Command) executePipelineImproved(pipeline *parser.Pipeline) bool {
 		// Handle input redirection for the first command
 		if i == 0 && inputRedirectType == "<" && inputFilename != "" {
 			var err error
-			inputFile, err = cmd.setupInputRedirection(inputFilename)
+			lastOutput, inputCleanup, err = cmd.setupInputRedirection(inputFilename)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
 				cmd.ReturnCode = 1
 				return false
 			}
-			defer func() {
-				if inputFile != nil {
-					inputFile.Close()
-				}
-			}()
-			lastOutput = inputFile
+			defer inputCleanup()
 		}
 
 		// Handle output redirection for the last command

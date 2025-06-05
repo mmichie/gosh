@@ -27,6 +27,7 @@ type Command struct {
 	EUID       int
 	ReturnCode int
 	JobManager *JobManager
+	HereDocs   HereDocMap
 }
 
 var m28Interpreter *m28adapter.Interpreter
@@ -36,9 +37,19 @@ func init() {
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
+	// Store here-document data for later processing
+	var hereDocs HereDocMap
+
+	// Preprocess for here-documents
+	// This extracts here-doc content and replaces it with input redirection placeholders
+	processedInput, hereDocs, err := PreprocessHereDoc(input)
+	if err != nil {
+		return nil, fmt.Errorf("here-document error: %v", err)
+	}
+
 	// Perform command substitution before parsing
 	// This replaces $(...) and `...` with their command output
-	processedInput, err := PerformCommandSubstitution(input, jobManager)
+	processedInput, err = PerformCommandSubstitution(processedInput, jobManager)
 	if err != nil {
 		return nil, fmt.Errorf("command substitution error: %v", err)
 	}
@@ -61,6 +72,7 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 		Stdout:     os.Stdout,
 		Stderr:     os.Stderr,
 		JobManager: jobManager,
+		HereDocs:   hereDocs,
 	}, nil
 }
 
@@ -209,7 +221,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var cmds []*exec.Cmd
 	var pipes []*io.PipeWriter
 	var outputFile *os.File
-	var inputFile *os.File
+	var inputCleanup func()
 	lastOutput := cmd.Stdin
 
 	// If there's only one command, check for simple redirection
@@ -235,18 +247,13 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
 			var err error
-			inputFile, err = cmd.setupInputRedirection(inputFilename)
+			lastOutput, inputCleanup, err = cmd.setupInputRedirection(inputFilename)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
 				cmd.ReturnCode = 1
 				return false
 			}
-			defer func() {
-				if inputFile != nil {
-					inputFile.Close()
-				}
-			}()
-			lastOutput = inputFile
+			defer inputCleanup()
 		}
 
 		// Handle output redirection
@@ -408,18 +415,13 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
 			var err error
-			inputFile, err = cmd.setupInputRedirection(inputFilename)
+			lastOutput, inputCleanup, err = cmd.setupInputRedirection(inputFilename)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "Error opening input file: %v\n", err)
 				cmd.ReturnCode = 1
 				return false
 			}
-			defer func() {
-				if inputFile != nil {
-					inputFile.Close()
-				}
-			}()
-			lastOutput = inputFile
+			defer inputCleanup()
 		}
 
 		// Handle output redirection
@@ -655,8 +657,18 @@ func (cmd *Command) setupOutputRedirection(redirectType, filename string) (*os.F
 	return file, nil
 }
 
-func (cmd *Command) setupInputRedirection(filename string) (*os.File, error) {
-	// Get absolute path based on the current working directory
+// setupInputRedirection sets up input redirection for a command
+// Returns an io.Reader and a cleanup function that must be called when done
+func (cmd *Command) setupInputRedirection(filename string) (io.Reader, func(), error) {
+	// Check if this is a here-document identifier
+	if cmd.HereDocs != nil {
+		if hereDoc, ok := cmd.HereDocs[filename]; ok {
+			// Process the here-document and return a reader with no-op cleanup
+			return ProcessHereDoc(hereDoc), func() {}, nil
+		}
+	}
+
+	// If not a here-document, handle regular file redirection
 	currentDir, err := os.Getwd()
 	if err != nil {
 		currentDir = GetGlobalState().GetCWD()
@@ -671,10 +683,17 @@ func (cmd *Command) setupInputRedirection(filename string) (*os.File, error) {
 
 	// Verify the path exists
 	if _, err := os.Stat(absPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("file not found: %s (resolved to %s)", filename, absPath)
+		return nil, func() {}, fmt.Errorf("file not found: %s (resolved to %s)", filename, absPath)
 	}
 
-	return os.Open(absPath)
+	// Open the file
+	file, err := os.Open(absPath)
+	if err != nil {
+		return nil, func() {}, err
+	}
+
+	// Return the file and a cleanup function that closes it
+	return file, func() { file.Close() }, nil
 }
 
 // setupFileDescriptorDuplication handles redirections like 2>&1 (stderr to stdout)

@@ -58,9 +58,11 @@ The following tasks have been identified as the next items to implement, based o
    - Implement array variables
    - Add array operations (indexing, slicing, iteration)
 
-□ **Here-Documents**
+✅ **Implemented: Here-Documents**
    - Support for here-docs (`<<EOF`) and here-strings (`<<<`)
    - Multi-line string input for commands
+   - Tab stripping with `<<-EOF` syntax
+   - Support for quoted delimiters
 
 ### Low Priority
 
