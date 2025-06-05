@@ -37,19 +37,19 @@ A record stream is a sequence of records separated by newlines. This format is:
 - Compatible with existing Unix tools
 - Streamable (no need to load entire datasets into memory)
 
-### 3. Hybrid Shell/Lisp Processing
+### 3. Hybrid Shell/M28 Processing
 
-The key innovation is seamless integration between shell commands and Lisp expressions:
+The key innovation is seamless integration between shell commands and M28's Python-Lisp expressions:
 
 ```bash
 # Shell command producing records
 ps --records | 
-# Lisp transformation inline
-(map #(assoc % :memory-mb (/ (:memory %) 1024))) |
+# M28 transformation inline using Python-like syntax
+(map (lambda (r) {"memory_mb": r["memory"] / 1024, **r}) records) |
 # Back to shell command
-sort-by memory-mb desc |
-# Another Lisp operation
-(take 10)
+sort-by memory_mb desc |
+# Another M28 operation
+[r for r in records if r["memory_mb"] > 100][:10]
 ```
 
 ## Architecture
@@ -77,26 +77,50 @@ type RecordConsumer interface {
 
 ### M28 Integration Points
 
-1. **Lisp as First-Class Pipeline Component**
+1. **M28 as First-Class Pipeline Component**
    ```bash
-   # Lisp expressions in parentheses are evaluated as stream processors
-   cat data.json | (filter #(> (:age %) 21)) | count
+   # M28 expressions in parentheses are evaluated as stream processors
+   cat data.json | (filter (lambda (r) (> r["age"] 21)) records) | count
+   
+   # Using M28's Python-like list comprehensions
+   cat data.json | [r for r in records if r["age"] > 21] | count
    ```
 
-2. **Lisp Comprehensions for Records**
-   ```lisp
+2. **M28 Stream Processing Functions**
+   ```python
    # Define reusable stream processors
-   (defstream young-users []
-     (filter #(< (:age %) 30)))
+   (def young_users (records)
+     [r for r in records if r["age"] < 30])
+   
+   # Define with generator for large streams
+   (def filter_active (records)
+     (for r in records
+       (if r["active"]
+         (yield r))))
    
    # Use in pipeline
-   cat users.json | (young-users) | select name email
+   cat users.json | (young_users) | select name email
    ```
 
-3. **Lisp-Defined Aggregations**
-   ```lisp
-   (defagg average [field]
-     (/ (sum field) (count)))
+3. **M28-Defined Aggregations**
+   ```python
+   # Using M28's Python-like syntax
+   (def average (field records)
+     (= values [r[field] for r in records if field in r])
+     (if values
+       (/ (sum values) (len values))
+       None))
+   
+   # More complex aggregation with grouping
+   (def group_aggregate (key_field agg_field records)
+     (= groups {})
+     (for r in records
+       (= key r[key_field])
+       (if key not in groups
+         (= groups[key] []))
+       (groups[key].append r[agg_field]))
+     (for (k, vals) in (items groups)
+       (yield {"key": k, "avg": (sum vals) / (len vals)})))
    ```
 
 ## Command Categories
@@ -136,9 +160,9 @@ rename old-name:new-name             # Rename fields
 compute tax:{.income * 0.3}         # Add computed fields
 transform {.price = .price * 1.1}   # Modify in place
 
-# Lisp transformations
-(map #(update % :name str/upper))   # Uppercase names
-(filter #(contains? % :email))      # Only records with email
+# M28 transformations using Python-like syntax
+(map (lambda (r) {**r, "name": r["name"].upper()}) records)  # Uppercase names
+[r for r in records if "email" in r]                         # Only records with email
 ```
 
 ### 3. Aggregation Commands
@@ -202,17 +226,27 @@ select @nam  # matches "name" or "full_name"
 
 ### Pipeline Variables
 
-Records can be referenced in Lisp expressions:
+Records can be referenced in M28 expressions:
 
 ```bash
-# $ refers to the current record
-where (> (get $ :age) 21)
+# Direct dictionary access in M28
+where (> $["age"] 21)
 
-# $$ refers to the previous record (for delta operations)
-compute delta:{.value - $$.value}
+# Previous record for delta operations  
+compute delta:{$["value"] - $$["value"]}
 
-# $n refers to the nth record in a window
-window 3 | compute trend:{$2.value - $0.value}
+# Window operations with M28 generators
+(def sliding_window (n records)
+  (= window [])
+  (for r in records
+    (window.append r)
+    (if (> (len window) n)
+      (= window window[1:]))
+    (if (== (len window) n)
+      (yield window))))
+
+# Use in pipeline for trend analysis
+| (sliding_window 3) | (map (lambda (w) {"trend": w[-1]["value"] - w[0]["value"]}) windows)
 ```
 
 ## Implementation Phases
@@ -224,10 +258,11 @@ window 3 | compute trend:{$2.value - $0.value}
 - [ ] Integration with existing commands via --records flag
 
 ### Phase 2: M28 Stream Processing
-- [ ] Lisp stream processing operators (map, filter, reduce)
-- [ ] Inline Lisp expressions in pipelines
-- [ ] Lisp comprehension syntax
-- [ ] Custom aggregation functions in Lisp
+- [ ] M28 stream processing with Python-like syntax
+- [ ] List comprehensions for record filtering
+- [ ] Generator support for large streams
+- [ ] Custom aggregation functions using M28's def syntax
+- [ ] Integration with M28's built-in map, filter, reduce
 
 ### Phase 3: Advanced Features
 - [ ] Automatic format detection
@@ -246,49 +281,64 @@ window 3 | compute trend:{$2.value - $0.value}
 
 ### Log Analysis
 ```bash
-# Find the top 10 error-producing endpoints
+# Find the top 10 error-producing endpoints using M28
 from-log nginx.log |
-where {.status >= 500} |
+[r for r in records if r["status"] >= 500] |
 group-by endpoint |
 count |
 sort-by count desc |
-(take 10) |
+(lambda (records) records[:10]) |
 to-table
 ```
 
 ### System Monitoring
 ```bash
-# Alert on high memory processes
+# Alert on high memory processes with M28 transformations
 ps --records |
-(map #(assoc % :memory-gb (/ (:memory %) 1024 1024))) |
-where {.memory-gb > 2} |
-select pid user command memory-gb |
+(map (lambda (r) {**r, "memory_gb": r["memory"] / 1024 / 1024}) records) |
+[r for r in records if r["memory_gb"] > 2] |
+select pid user command memory_gb |
 to-alert "High memory usage"
 ```
 
 ### Data Processing
 ```bash
-# Process CSV sales data with complex transformations
+# Process CSV sales data with M28's Python-like syntax
 from-csv sales.csv |
-where {.amount > 0} |
-(map #(assoc % 
-  :tax (* (:amount %) 0.08)
-  :total (+ (:amount %) (:tax %))
-  :quarter (time/quarter (:date %)))) |
+[r for r in records if r["amount"] > 0] |
+(def process_sale (r)
+  (= tax r["amount"] * 0.08)
+  {**r, 
+   "tax": tax,
+   "total": r["amount"] + tax,
+   "quarter": (datetime.strptime r["date"] "%Y-%m-%d").quarter}) |
+(map process_sale records) |
 group-by quarter |
 aggregate sum:total average:total count |
 to-chart --x quarter --y sum
 ```
 
-### API Integration
+### API Integration with M28 Classes
 ```bash
-# Combine data from multiple APIs
+# Define a record processor class in M28
+(class UserMerger
+  (def __init__ (self)
+    (= self.seen_emails set()))
+  
+  (def process (self records)
+    (for r in records
+      (if r["email"] not in self.seen_emails
+        (self.seen_emails.add r["email"])
+        (yield r)))))
+
+# Use in pipeline
 parallel {
   http GET api1.example.com/users | tag source:api1
   http GET api2.example.com/users | tag source:api2
 } |
-(unique-by :email) |
-where {.active == true} |
+(= merger (UserMerger)) |
+(merger.process) |
+[r for r in records if r["active"]] |
 to-json > combined-users.json
 ```
 

@@ -231,31 +231,51 @@ The following tasks have been identified as the next items to implement, based o
 Once implemented, gosh will enable powerful data processing:
 
 ```bash
-# System monitoring with alerts
+# System monitoring with alerts using M28's Python-like syntax
 ps --records | 
-(filter #(> (:cpu %) 80)) |
+[r for r in records if r["cpu"] > 80] |
 group-by user |
-select user cpu-total:{(sum cpu)} proc-count:{(count)} |
-where {.cpu-total > 200} |
+(def summarize (groups)
+  (for (user, procs) in (items groups)
+    (yield {"user": user, 
+            "cpu_total": (sum [p["cpu"] for p in procs]),
+            "proc_count": (len procs)}))) |
+[r for r in records if r["cpu_total"] > 200] |
 to-alert "High CPU usage by user"
 
-# Log analysis with Lisp transformations  
+# Log analysis with M28 transformations  
 from-log nginx.log |
-(map #(assoc % 
-  :response-time-ms (parse-float (:response-time %))
-  :hour (time/hour (:timestamp %)))) |
+(def parse_log (r)
+  {**r,
+   "response_time_ms": (float r["response_time"]),
+   "hour": (datetime.strptime r["timestamp"] "%Y-%m-%d %H:%M:%S").hour}) |
+(map parse_log records) |
 group-by endpoint hour |
-aggregate p95:{(percentile 95 response-time-ms)} avg:{(average response-time-ms)} |
-where {.p95 > 1000} |
+(def percentile (p values)
+  (= sorted_vals (sorted values))
+  (= index (int (len sorted_vals) * p / 100))
+  sorted_vals[index]) |
+aggregate p95:{(percentile 95 response_time_ms)} avg:{(average response_time_ms)} |
+[r for r in records if r["p95"] > 1000] |
 to-chart --x hour --y p95 --group-by endpoint
 
-# Multi-source data join
+# Multi-source data join with M28 classes
+(class RecordJoiner
+  (def join (self key records1 records2)
+    (= index {})
+    (for r in records2
+      (= index[r[key]] r))
+    (for r in records1
+      (if r[key] in index
+        (yield {**r, **index[r[key]]}))))) |
+
 parallel {
   docker ps --records | select container-id name cpu memory
   docker stats --records | select container-id network-io disk-io
 } |
-join container-id |
-(map #(assoc % :efficiency (/ (:cpu %) (:memory %)))) |
+(= joiner (RecordJoiner)) |
+(joiner.join "container-id") |
+(map (lambda (r) {**r, "efficiency": r["cpu"] / r["memory"] if r["memory"] > 0 else 0}) records) |
 sort-by efficiency desc |
 to-table
 ```
