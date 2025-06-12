@@ -72,6 +72,165 @@ Transform gosh into a data-oriented shell by implementing record streams. See [R
    - to-chart for visualizations
    - Plugin system for custom formats
 
+## Comparison with Zsh: Feature Delta Analysis
+
+To make gosh a viable daily-driver shell, we need to understand what users expect from modern shells. Here's a comprehensive comparison with zsh, one of the most feature-rich shells available.
+
+### ✅ Features Gosh Already Has
+- Basic command execution and pipes
+- Job control (fg, bg, jobs, &)
+- I/O redirection (including 2>&1, &>)
+- Command history with persistence
+- Tab completion (basic)
+- Environment variables
+- Command substitution
+- Wildcard expansion (*, ?, [...], {...})
+- Here-documents and here-strings
+- AND/OR operators (&&, ||)
+
+### 🚀 Gosh's Unique Advantages
+- **M28 Lisp Integration**: Full programming language embedded in shell
+- **Record Streams** (planned): First-class structured data processing
+- **Python-like Syntax**: More approachable than traditional shell scripting
+- **Data-Oriented Design**: Built for modern JSON/API workflows
+
+### ❌ Critical Features Missing (High Priority for Shell Parity)
+
+#### 1. **Shell Scripting via M28** ✅ (Different Approach)
+- [x] Control flow: M28 already has `if/elif/else`, `for`, `while`, `cond`, `case`
+- [x] Functions: M28 has `def` with full Python-like capabilities
+- [ ] Shell integration: Access to `$1`, `$2`, `$@`, `$*` from M28
+- [ ] Exit status: Access to `$?` from M28 context
+- [ ] Script debugging: M28 error messages and stack traces
+- [ ] Source command: Load and execute .m28 files
+
+#### 2. **Advanced Expansion and Substitution**
+- [ ] Parameter expansion: `${var:-default}`, `${var:+alt}`, `${var:?error}`, `${var:=assign}`
+- [ ] String manipulation: `${var#pattern}`, `${var%pattern}`, `${var/old/new}`
+- [ ] Array expansion: `${array[@]}`, `${#array[@]}`
+- [ ] Arithmetic expansion: `$((expression))`
+- [ ] Brace expansion sequences: `{1..10}`, `{a..z}`
+
+#### 3. **Directory Navigation**
+- [ ] Directory stack (pushd, popd, dirs)
+- [ ] CDPATH for quick navigation
+- [ ] Auto-cd (type directory name to cd)
+- [ ] Named directories (hash -d)
+- [ ] Smart cd with fuzzy matching
+
+#### 4. **Interactive Features**
+- [ ] Command correction ("Did you mean...?")
+- [ ] Shared history between sessions
+- [ ] History substring search (Ctrl+R improvements)
+- [ ] Syntax highlighting while typing
+- [ ] Auto-suggestions based on history
+- [ ] Programmable prompt with git status
+
+#### 5. **Completion System**
+- [ ] Context-aware completions
+- [ ] Completion for command options/flags
+- [ ] Customizable completion functions
+- [ ] Remote file completion (scp, ssh)
+- [ ] Git-aware completion
+- [ ] Man page based completion
+
+### 🔧 Nice-to-Have Features (Medium Priority)
+
+#### 1. **Zsh Power Features**
+- [ ] Associative arrays (hash maps)
+- [ ] Floating-point arithmetic
+- [ ] Extended globbing: `**/*.js`, `*.{jpg,png}`, `^pattern` (negation)
+- [ ] Glob qualifiers: `*(.)` (files only), `*(/)` (dirs only), `*(m-7)` (modified in last week)
+- [ ] Precommand modifiers: `noglob`, `nocorrect`
+- [ ] Process substitution: `<()`, `>()`
+
+#### 2. **Configuration and Customization**
+- [ ] Multiple startup files (.goshenv, .goshrc, .goshlogin)
+- [ ] Options system (setopt/unsetopt equivalents)
+- [ ] Loadable modules
+- [ ] Theme support
+- [ ] Plugin architecture
+
+#### 3. **Advanced Line Editing**
+- [ ] Vi and Emacs modes with full keybindings
+- [ ] Custom key bindings
+- [ ] Multi-line editing with proper cursor movement
+- [ ] Kill ring (yank/paste system)
+- [ ] Undo/redo in command line
+
+### 📊 Implementation Priority Matrix
+
+Based on user impact and implementation complexity:
+
+**Immediate Priority (Makes gosh usable as primary shell):**
+1. M28 shell integration (access to $1, $2, $?, shell command execution)
+2. Parameter expansion
+3. Better completion system
+4. Shared history
+5. Directory stack
+
+**Second Wave (Improves daily use):**
+1. Command correction
+2. Syntax highlighting
+3. Advanced globbing
+4. Git prompt integration
+5. Arithmetic expansion
+
+**Third Wave (Power user features):**
+1. Associative arrays
+2. Extended glob qualifiers
+3. Loadable modules
+4. Theme system
+5. Advanced line editing
+
+### 🎯 Strategic Approach
+
+Rather than copying all zsh features, gosh should:
+1. **Prioritize data processing**: Leverage M28 and record streams as the killer feature
+2. **Modernize shell UX**: Better error messages, visual feedback, progressive disclosure
+3. **Cherry-pick essentials**: Focus on the 20% of features that handle 80% of use cases
+4. **Integrate with modern tools**: First-class JSON, API calls, cloud services
+5. **M28 as the scripting language**: No need for bash/zsh scripting syntax - use M28's Python-like syntax for everything
+
+This positions gosh not as "another zsh" but as "the shell for the API age" - combining traditional shell power with modern data processing capabilities.
+
+### 📝 M28 Shell Scripting Examples
+
+Instead of traditional shell scripts, gosh users will write M28:
+
+```lisp
+#!/usr/bin/env gosh -m
+
+# Traditional shell script functionality in M28
+(def main (args)
+  # Access command line arguments
+  (= script-name (first args))
+  (= params (rest args))
+  
+  # Control flow
+  (if (empty? params)
+    (print "Usage: {script-name} <file>...")
+    (for file in params
+      (process-file file)))
+  
+  # Exit status
+  (if success 0 1))
+
+# Shell command execution from M28
+(def process-file (file)
+  (try
+    # Execute shell commands and capture output
+    (= result (shell "grep -n TODO {file}"))
+    (if result.stdout
+      (print "TODOs in {file}:\n{result.stdout}")
+      (print "No TODOs in {file}"))
+    (except ShellError as e
+      (print "Error processing {file}: {e.message}")
+      (= success False))))
+```
+
+This eliminates the need for learning arcane shell scripting syntax while providing more power and better error handling.
+
 ## Next Implementation Tasks
 
 The following tasks have been identified as the next items to implement, based on examination of the codebase:
