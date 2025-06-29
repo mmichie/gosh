@@ -163,6 +163,12 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - **Record Streams** (planned): First-class structured data processing
 - **Python-like Syntax**: More approachable than traditional shell scripting
 - **Data-Oriented Design**: Built for modern JSON/API workflows
+- **M28-Powered Configuration**: Write `.goshrc` in M28 instead of shell syntax:
+  - Dynamic prompts with real programming logic
+  - Context-aware aliases and completions
+  - Type-safe configuration with better error messages
+  - Hooks and event handlers with full M28 power
+  - No more cryptic shell configuration syntax
 
 ### ❌ Critical Features Missing (High Priority for Shell Parity)
 
@@ -240,12 +246,23 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] SIGCHLD handling
 
 #### 9. **Startup and Configuration**
-- [ ] Startup files: `.goshrc`, `.gosh_profile`, `.goshenv`
+- [ ] M28-based configuration system (`.goshrc` written in M28)
+- [ ] Configuration API functions:
+  - [ ] `config-set` for settings management
+  - [ ] `define-alias` and `define-abbrev` for shortcuts
+  - [ ] `bind-key` for key bindings
+  - [ ] `add-hook` for event handlers (precmd, chpwd, etc.)
+  - [ ] `set-option` for shell options
+  - [ ] `add-syntax-rule` for syntax highlighting
+  - [ ] `add-completer` for custom completions
+- [ ] Dynamic prompt configuration with M28 lambdas
+- [ ] Context-aware aliases using M28 conditionals
+- [ ] Theme system using M28 data structures
 - [ ] System-wide config: `/etc/goshrc`
 - [ ] Login vs non-login shell distinction
 - [ ] Interactive vs non-interactive detection
 - [ ] RC file sourcing order
-- [ ] Custom module/plugin loading
+- [ ] Custom module/plugin loading via M28
 
 ### 🔧 Nice-to-Have Features (Medium Priority)
 
@@ -355,9 +372,9 @@ Based on user impact and implementation complexity:
 9. M28 shell integration (access to $1, $2, $?, shell command execution)
 
 **Second Wave (Improves daily use):**
-1. Better completion system (programmable, git-aware, with descriptions)
-2. Startup files (.goshrc, .gosh_profile)
-3. Prompt customization (PS1, PROMPT_COMMAND, RPROMPT)
+1. M28-based configuration system (.goshrc in M28)
+2. Better completion system (programmable, git-aware, with descriptions)
+3. Dynamic prompt customization with M28 lambdas
 4. Helpful error messages (fish-style user-friendly)
 5. History expansion and sharing
 6. Brace expansion sequences `{1..10}`, `{01..20}`
@@ -397,6 +414,58 @@ Rather than copying all features from other shells, gosh should:
    - Zero-configuration productivity
 
 This positions gosh not as "another zsh" but as "the shell for the API age" - combining fish's excellent UX, traditional shell power, and modern data processing capabilities.
+
+### 📝 M28 Configuration Examples
+
+Gosh configuration files (`.goshrc`) use M28's powerful syntax:
+
+```lisp
+# ~/.goshrc - Gosh configuration in M28
+
+# Dynamic prompt with git integration
+(config-set "prompt.left" 
+  (lambda ()
+    (str (ansi-color "cyan" (whoami))
+         "@" (ansi-color "green" (hostname))
+         ":" (ansi-color "blue" (pwd))
+         (if (git-repo?) 
+             (str " " (ansi-color "yellow" (git-branch))
+                  (git-status-indicator))
+             "")
+         "$ ")))
+
+# Context-aware aliases
+(define-context-alias "test"
+  (cond
+    ((file-exists? "Makefile") "make test")
+    ((file-exists? "package.json") "npm test")
+    ((file-exists? "go.mod") "go test ./...")
+    (else "echo 'No test runner found'")))
+
+# Smart completions
+(add-completer "git"
+  (lambda (cmd args)
+    (cond
+      ((= (length args) 1) (git-commands))
+      ((= (first args) "checkout") (git-branches))
+      ((= (first args) "add") (git-modified-files))
+      (else nil))))
+
+# Hooks with real logic
+(add-hook 'chpwd-hook
+  (lambda ()
+    (when (file-exists? ".nvmrc")
+      (nvm-use (read-file ".nvmrc")))
+    (when (file-exists? ".env")
+      (source-env ".env"))))
+
+# Options
+(set-option 'auto-cd true)
+(set-option 'syntax-highlighting true)
+(set-option 'auto-suggestions true)
+```
+
+Compare this to traditional shell configuration syntax - M28 provides real programming constructs, better error handling, and more expressive power.
 
 ### 📝 M28 Shell Scripting Examples
 
