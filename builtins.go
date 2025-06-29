@@ -3,6 +3,7 @@ package gosh
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -30,6 +31,11 @@ func init() {
 	builtins["bg"] = bg
 	builtins["prompt"] = prompt
 	builtins["m28"] = runM28
+
+	// Directory navigation commands
+	builtins["pushd"] = pushd
+	builtins["popd"] = popd
+	builtins["dirs"] = dirs
 
 	// Add test utilities for conditional execution
 	builtins["true"] = trueCommand
@@ -81,9 +87,25 @@ func cd(cmd *Command) error {
 
 		// Always print the directory we're changing to when using cd -
 		fmt.Fprintln(cmd.Stdout, targetDir)
+	}
 
-		// Log for debugging
-		fmt.Fprintf(cmd.Stderr, "cd: changing to previous directory: %s\n", targetDir)
+	// Check if it's a relative path and CDPATH is set
+	if !filepath.IsAbs(targetDir) && targetDir != "-" {
+		cdpath := os.Getenv("CDPATH")
+		if cdpath != "" {
+			// Try each directory in CDPATH
+			cdpathDirs := strings.Split(cdpath, ":")
+			for _, dir := range cdpathDirs {
+				candidatePath := filepath.Join(dir, targetDir)
+				if _, err := os.Stat(candidatePath); err == nil {
+					// Found a match in CDPATH
+					targetDir = candidatePath
+					// Print the directory we're changing to when using CDPATH
+					fmt.Fprintln(cmd.Stdout, targetDir)
+					break
+				}
+			}
+		}
 	}
 
 	// Attempt to change directory
@@ -215,17 +237,44 @@ func echo(cmd *Command) error {
 }
 
 func help(cmd *Command) error {
-	_, err := fmt.Fprintln(cmd.Stdout, "Built-in commands:")
-	if err != nil {
-		return err
-	}
-	for name := range builtins {
-		_, err = fmt.Fprintf(cmd.Stdout, "  %s\n", name)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	helpText := `Built-in commands:
+  alias       - Create command aliases
+  bg          - Resume job in background
+  cd          - Change directory (supports CDPATH)
+  dirs        - Display directory stack (options: -v, -p, -c)
+  echo        - Display text
+  env         - Display environment variables
+  exit        - Exit the shell
+  export      - Set environment variables
+  false       - Return failure status
+  fg          - Bring job to foreground
+  help        - Display this help message
+  history     - Display command history
+  jobs        - List active jobs
+  m28         - Execute M28 Lisp expression
+  popd        - Pop directory from stack and change to it
+  prompt      - Set shell prompt
+  pushd       - Push directory onto stack and change to it
+  pwd         - Print working directory
+  true        - Return success status
+  unalias     - Remove command aliases
+
+Directory Navigation:
+  pushd <dir> - Push current directory onto stack and change to <dir>
+  pushd       - Swap top two directories on stack
+  pushd +n    - Rotate stack to make nth directory the top
+  popd        - Remove top directory and change to new top
+  popd +n     - Remove nth directory from stack
+  dirs        - Display directory stack
+  dirs -v     - Display with indices
+  dirs -p     - Display one per line
+  dirs -c     - Clear directory stack
+  
+  CDPATH: Set CDPATH environment variable to a colon-separated list of
+          directories to search when using cd with a relative path.
+`
+	_, err := fmt.Fprint(cmd.Stdout, helpText)
+	return err
 }
 
 func history(cmd *Command) error {
@@ -562,4 +611,287 @@ func runM28(cmd *Command) error {
 
 	_, err = fmt.Fprintf(cmd.Stdout, "%s\n", result)
 	return err
+}
+
+// pushd pushes the current directory onto the directory stack and changes to a new directory
+func pushd(cmd *Command) error {
+	gs := GetGlobalState()
+
+	// Get current directory
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("pushd: failed to get current directory: %v", err)
+	}
+
+	// Parse arguments
+	var targetDir string
+	var rotateIndex int
+	var hasRotateIndex bool
+
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
+		if len(firstCommand.Parts) > 1 {
+			arg := firstCommand.Parts[1]
+
+			// Check if it's a rotation argument (+n or -n)
+			if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
+				index, err := strconv.Atoi(arg[1:])
+				if err == nil {
+					hasRotateIndex = true
+					if strings.HasPrefix(arg, "-") {
+						index = -index
+					}
+					rotateIndex = index
+				} else {
+					targetDir = arg
+				}
+			} else {
+				targetDir = arg
+			}
+		}
+	}
+
+	// Handle rotation
+	if hasRotateIndex {
+		newTop := gs.RotateStack(rotateIndex)
+		if newTop == "" {
+			return fmt.Errorf("pushd: directory stack empty")
+		}
+
+		// Change to the new top directory
+		err = os.Chdir(newTop)
+		if err != nil {
+			return fmt.Errorf("pushd: %v", err)
+		}
+
+		// Update CWD
+		gs.UpdateCWD(newTop)
+
+		// Print the stack
+		return printDirStack(cmd, gs)
+	}
+
+	// If no directory specified, swap top two directories
+	if targetDir == "" {
+		stack := gs.GetDirStack()
+		if len(stack) < 2 {
+			return fmt.Errorf("pushd: no other directory")
+		}
+
+		// Swap top two directories
+		targetDir = stack[1]
+
+		// Rotate stack by 1
+		gs.RotateStack(1)
+	} else {
+		// Expand ~ to home directory
+		if strings.HasPrefix(targetDir, "~") {
+			home := os.Getenv("HOME")
+			if home == "" {
+				return fmt.Errorf("pushd: HOME not set")
+			}
+			targetDir = home + targetDir[1:]
+		}
+
+		// Convert to absolute path before pushing
+		absTargetDir, err := filepath.Abs(targetDir)
+		if err != nil {
+			return fmt.Errorf("pushd: %v", err)
+		}
+
+		// Push current directory and new directory onto stack
+		gs.PushDir(absTargetDir)
+	}
+
+	// Change to the target directory
+	err = os.Chdir(targetDir)
+	if err != nil {
+		// Remove the pushed directory on failure
+		gs.PopDir()
+		return fmt.Errorf("pushd: %v", err)
+	}
+
+	// Update CWD
+	newDir, err := os.Getwd()
+	if err != nil {
+		// Revert changes
+		os.Chdir(currentDir)
+		gs.PopDir()
+		return fmt.Errorf("pushd: %v", err)
+	}
+
+	gs.UpdateCWD(newDir)
+
+	// Print the directory stack
+	return printDirStack(cmd, gs)
+}
+
+// popd pops a directory from the stack and changes to it
+func popd(cmd *Command) error {
+	gs := GetGlobalState()
+
+	// Parse arguments for rotation
+	var rotateIndex int
+	var hasRotateIndex bool
+
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
+		if len(firstCommand.Parts) > 1 {
+			arg := firstCommand.Parts[1]
+
+			// Check if it's a rotation argument (+n or -n)
+			if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
+				index, err := strconv.Atoi(arg[1:])
+				if err == nil {
+					hasRotateIndex = true
+					if strings.HasPrefix(arg, "-") {
+						index = -index
+					}
+					rotateIndex = index
+				}
+			}
+		}
+	}
+
+	// Get current stack
+	stack := gs.GetDirStack()
+	if len(stack) <= 1 {
+		return fmt.Errorf("popd: directory stack empty")
+	}
+
+	// Handle rotation (remove nth element)
+	if hasRotateIndex {
+		// Normalize index
+		if rotateIndex < 0 {
+			rotateIndex = len(stack) + rotateIndex
+		}
+		if rotateIndex < 0 || rotateIndex >= len(stack) {
+			return fmt.Errorf("popd: stack index out of range")
+		}
+
+		// Can't remove the current directory (index 0)
+		if rotateIndex == 0 {
+			// Just pop the top
+			newDir := gs.PopDir()
+			if newDir == "" {
+				return fmt.Errorf("popd: directory stack empty")
+			}
+
+			// Convert to absolute path if necessary
+			absDir, err := filepath.Abs(newDir)
+			if err != nil {
+				return fmt.Errorf("popd: %v", err)
+			}
+
+			// Change to the new top directory
+			err = os.Chdir(absDir)
+			if err != nil {
+				return fmt.Errorf("popd: %v", err)
+			}
+
+			gs.UpdateCWD(newDir)
+		} else {
+			// Remove the nth element without changing directory
+			removed := gs.RemoveStackElement(rotateIndex)
+			if removed == "" {
+				return fmt.Errorf("popd: stack index out of range")
+			}
+			// Stay in current directory, just remove the element
+		}
+	} else {
+		// Normal popd - remove top and change to new top
+		newDir := gs.PopDir()
+		if newDir == "" {
+			return fmt.Errorf("popd: directory stack empty")
+		}
+
+		// Convert to absolute path if necessary
+		absDir, err := filepath.Abs(newDir)
+		if err != nil {
+			return fmt.Errorf("popd: %v", err)
+		}
+
+		// Change to the new top directory
+		err = os.Chdir(absDir)
+		if err != nil {
+			return fmt.Errorf("popd: %v", err)
+		}
+
+		gs.UpdateCWD(newDir)
+	}
+
+	// Print the directory stack
+	return printDirStack(cmd, gs)
+}
+
+// dirs displays the directory stack
+func dirs(cmd *Command) error {
+	gs := GetGlobalState()
+
+	// Parse options
+	var clearStack bool
+	var verbose bool
+	var printOne bool
+
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
+		for i := 1; i < len(firstCommand.Parts); i++ {
+			arg := firstCommand.Parts[i]
+			switch arg {
+			case "-c":
+				clearStack = true
+			case "-v":
+				verbose = true
+			case "-p":
+				printOne = true
+			}
+		}
+	}
+
+	// Clear stack if requested
+	if clearStack {
+		// Reset stack to just current directory
+		currentDir, err := os.Getwd()
+		if err != nil {
+			return fmt.Errorf("dirs: failed to get current directory: %v", err)
+		}
+		// We need a method to clear the stack, for now we'll work around it
+		// by popping until only one element remains
+		for len(gs.GetDirStack()) > 1 {
+			gs.PopDir()
+		}
+		gs.UpdateCWD(currentDir)
+		return nil
+	}
+
+	stack := gs.GetDirStack()
+
+	// Print stack
+	if verbose {
+		for i, dir := range stack {
+			fmt.Fprintf(cmd.Stdout, "%d\t%s\n", i, dir)
+		}
+	} else if printOne {
+		for _, dir := range stack {
+			fmt.Fprintln(cmd.Stdout, dir)
+		}
+	} else {
+		// Default format: space-separated on one line
+		fmt.Fprintln(cmd.Stdout, strings.Join(stack, " "))
+	}
+
+	return nil
+}
+
+// Helper function to print directory stack in pushd/popd format
+func printDirStack(cmd *Command, gs *GlobalState) error {
+	stack := gs.GetDirStack()
+	fmt.Fprintln(cmd.Stdout, strings.Join(stack, " "))
+	return nil
 }

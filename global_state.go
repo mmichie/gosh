@@ -9,6 +9,7 @@ import (
 type GlobalState struct {
 	CWD         string
 	PreviousDir string
+	DirStack    []string // Directory stack for pushd/popd
 	mu          sync.RWMutex
 }
 
@@ -44,6 +45,7 @@ func GetGlobalState() *GlobalState {
 		globalState = &GlobalState{
 			CWD:         cwd,
 			PreviousDir: prevDir,
+			DirStack:    []string{cwd}, // Initialize with current directory
 		}
 
 		// Also ensure environment variables are set
@@ -62,6 +64,11 @@ func (gs *GlobalState) UpdateCWD(newCWD string) {
 		gs.PreviousDir = gs.CWD
 	}
 	gs.CWD = newCWD
+
+	// Update the top of the directory stack
+	if len(gs.DirStack) > 0 {
+		gs.DirStack[0] = newCWD
+	}
 
 	// Also update OLDPWD and PWD environment variables for consistency
 	os.Setenv("OLDPWD", gs.PreviousDir)
@@ -84,4 +91,105 @@ func (gs *GlobalState) SetPreviousDir(prevDir string) {
 	gs.mu.Lock()
 	defer gs.mu.Unlock()
 	gs.PreviousDir = prevDir
+}
+
+// PushDir pushes the current directory onto the stack and changes to the new directory
+func (gs *GlobalState) PushDir(newDir string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	// Push current directory onto stack
+	gs.DirStack = append(gs.DirStack, newDir)
+}
+
+// PopDir pops a directory from the stack and returns it
+// Returns empty string if stack is empty
+func (gs *GlobalState) PopDir() string {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if len(gs.DirStack) <= 1 {
+		// Don't pop the last directory
+		return ""
+	}
+
+	// Remove the top directory
+	gs.DirStack = gs.DirStack[:len(gs.DirStack)-1]
+
+	// Return the new top
+	return gs.DirStack[len(gs.DirStack)-1]
+}
+
+// GetDirStack returns a copy of the directory stack
+func (gs *GlobalState) GetDirStack() []string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	stack := make([]string, len(gs.DirStack))
+	copy(stack, gs.DirStack)
+	return stack
+}
+
+// RotateStack rotates the directory stack by n positions
+func (gs *GlobalState) RotateStack(n int) string {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if len(gs.DirStack) == 0 {
+		return ""
+	}
+
+	// Normalize n to be within stack bounds
+	n = n % len(gs.DirStack)
+	if n < 0 {
+		n += len(gs.DirStack)
+	}
+
+	if n == 0 {
+		return gs.DirStack[0]
+	}
+
+	// Rotate the stack
+	rotated := append(gs.DirStack[n:], gs.DirStack[:n]...)
+	gs.DirStack = rotated
+
+	return gs.DirStack[0]
+}
+
+// UpdateDirStackTop updates the top of the directory stack
+func (gs *GlobalState) UpdateDirStackTop(dir string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if len(gs.DirStack) > 0 {
+		gs.DirStack[0] = dir
+	}
+}
+
+// ResetDirStack resets the directory stack to contain only the current directory
+func (gs *GlobalState) ResetDirStack() {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	gs.DirStack = []string{gs.CWD}
+}
+
+// RemoveStackElement removes the element at the specified index from the directory stack
+// Returns the removed element, or empty string if index is out of bounds
+func (gs *GlobalState) RemoveStackElement(index int) string {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if index < 0 || index >= len(gs.DirStack) {
+		return ""
+	}
+
+	// Save the element to return
+	removed := gs.DirStack[index]
+
+	// Remove the element by rebuilding the slice
+	gs.DirStack = append(gs.DirStack[:index], gs.DirStack[index+1:]...)
+
+	return removed
 }

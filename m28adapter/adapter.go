@@ -2,6 +2,7 @@
 package m28adapter
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 
@@ -68,5 +69,10 @@ func IsLispExpression(cmdString string) bool {
 
 // StringValue converts a value to its string representation
 func StringValue(val interface{}) string {
-	return core.PrintValue(val)
+	// Check if val is already a core.Value
+	if v, ok := val.(core.Value); ok {
+		return core.PrintValue(v)
+	}
+	// Otherwise, convert to string using fmt
+	return fmt.Sprintf("%v", val)
 }

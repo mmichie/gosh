@@ -33,7 +33,9 @@ type Command struct {
 var m28Interpreter *m28adapter.Interpreter
 
 func init() {
-	m28Interpreter = m28adapter.NewInterpreter()
+	// Initialize m28 interpreter as nil - it will be created on first use
+	// to avoid multiple initialization issues
+	m28Interpreter = nil
 }
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
