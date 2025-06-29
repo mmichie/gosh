@@ -97,6 +97,28 @@ To understand what's needed for gosh to be a bash replacement, here's what's mis
 - Environment variables, history
 - Directory navigation (cd, pushd/popd)
 
+## Zsh Compatibility Gap
+
+To understand what's needed for gosh to compete with zsh, here's what's missing:
+
+### 🔴 Critical Zsh Features Not in Gosh
+1. **Advanced Globbing**: `**/*.js`, `^pattern`, `*(.)`, `*(m-7)`
+2. **Extended Parameter Expansion**: Array operations, transformations
+3. **Interactive Excellence**: Syntax highlighting, auto-suggestions, RPROMPT
+4. **Smart Completion**: Context-aware, descriptions, menu selection
+5. **Configuration System**: setopt/unsetopt, hooks, themes
+6. **Advanced Line Editing**: ZLE with vi/emacs modes, widgets
+
+### 🟡 Features Where Gosh Takes a Different Approach
+1. **Scripting**: Zsh's complex syntax vs M28's Python-like clarity
+2. **Data Processing**: Text-oriented (zsh) vs record-oriented (gosh)
+
+### 🟢 Basic Features Already in Gosh
+- Command execution, pipes, job control
+- I/O redirection, command substitution
+- Basic wildcards and completion
+- Directory stack (pushd/popd)
+
 ## Comparison with Zsh: Feature Delta Analysis
 
 To make gosh a viable daily-driver shell, we need to understand what users expect from modern shells. Here's a comprehensive comparison with zsh, one of the most feature-rich shells available.
@@ -134,8 +156,10 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] String manipulation: `${var#pattern}`, `${var%pattern}`, `${var/old/new}`
 - [ ] Array expansion: `${array[@]}`, `${#array[@]}`
 - [ ] Arithmetic expansion: `$((expression))`
-- [ ] Brace expansion sequences: `{1..10}`, `{a..z}`
+- [ ] Floating-point arithmetic: `$(( 3.14 * 2 ))`
+- [ ] Brace expansion sequences: `{1..10}`, `{a..z}`, `{01..20}`
 - [ ] Special parameters: `$$` (PID), `$!` (last background PID), `$0` (script name)
+- [ ] Recursive globbing: `**/*.js` (this is critical for modern development)
 
 #### 3. **Shell Arrays** (Not replaced by M28)
 - [ ] Indexed arrays: `arr=(one two three)`
@@ -199,27 +223,79 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 
 ### 🔧 Nice-to-Have Features (Medium Priority)
 
-#### 1. **Zsh Power Features**
-- [ ] Associative arrays (hash maps)
-- [ ] Floating-point arithmetic
-- [ ] Extended globbing: `**/*.js`, `*.{jpg,png}`, `^pattern` (negation)
-- [ ] Glob qualifiers: `*(.)` (files only), `*(/)` (dirs only), `*(m-7)` (modified in last week)
-- [ ] Precommand modifiers: `noglob`, `nocorrect`
-- [ ] Process substitution: `<()`, `>()`
+#### 1. **Zsh-Style Advanced Globbing**
+- [ ] Recursive globbing: `**/*.js` (search all subdirectories)
+- [ ] Negation patterns: `^*.txt` (all except .txt files)
+- [ ] Exclusion patterns: `*~*.bak` (exclude backup files)
+- [ ] Glob qualifiers: `*(.)` (files only), `*(/)` (dirs only)
+- [ ] Time-based qualifiers: `*(m-7)` (modified in last week), `*(mh+2)` (modified 2+ hours ago)
+- [ ] Size qualifiers: `*(Lm+100)` (files larger than 100MB)
+- [ ] Permission qualifiers: `*(f755)` (specific permissions)
+- [ ] Sorting qualifiers: `*(om)` (order by modification), `*(oL)` (order by size)
+- [ ] Numeric ranges in braces: `{01..99}` (zero-padded sequences)
 
-#### 2. **Configuration and Customization**
+#### 2. **Zsh-Style Interactive Features**
+- [ ] RPROMPT: Right-side prompt support
+- [ ] Spelling correction with CORRECT_ALL option
+- [ ] AUTO_CD: Type directory name without cd command
+- [ ] Menu completion: Interactive selection from completions
+- [ ] Completion descriptions: Help text for each completion
+- [ ] Completion grouping: Organize completions by type
+- [ ] List colors: Colored file listings (LS_COLORS support)
+
+#### 3. **Zsh-Style Arrays and Expansions**
+- [ ] Array transformations: `${(U)array}` (uppercase), `${(L)array}` (lowercase)
+- [ ] Array joining: `${(j:,:)array}` (join with delimiter)
+- [ ] String splitting: `${(s:,:)string}` (split by delimiter)
+- [ ] Unique elements: `${(u)array}` (remove duplicates)
+- [ ] Reverse array: `${(Oa)array}`
+- [ ] Nested expansions: `${${var#prefix}%suffix}`
+- [ ] Conditional expansions: `${var:+word}`, `${var:?error}`
+
+#### 4. **Configuration and Customization**
 - [ ] Multiple startup files (.goshenv, .goshrc, .goshlogin)
-- [ ] Options system (setopt/unsetopt equivalents)
-- [ ] Loadable modules
-- [ ] Theme support
+- [ ] Options system (setopt/unsetopt equivalents):
+  - [ ] EXTENDED_GLOB: Enable advanced globbing
+  - [ ] SHARE_HISTORY: Share history between sessions
+  - [ ] HIST_IGNORE_DUPS: Don't save duplicate commands
+  - [ ] AUTO_PUSHD: Make cd push to directory stack
+  - [ ] CORRECT: Command correction
+  - [ ] GLOB_DOTS: Include dotfiles in globs
+- [ ] Hook functions:
+  - [ ] precmd: Execute before each prompt
+  - [ ] preexec: Execute before each command
+  - [ ] chpwd: Execute on directory change
+  - [ ] periodic: Execute periodically
+- [ ] Loadable modules (datetime, regex, math functions)
+- [ ] Theme support with prompt themes
 - [ ] Plugin architecture
 
-#### 3. **Advanced Line Editing**
+#### 5. **Advanced Line Editing (ZLE)**
 - [ ] Vi and Emacs modes with full keybindings
-- [ ] Custom key bindings
+- [ ] Custom widgets and key bindings
 - [ ] Multi-line editing with proper cursor movement
-- [ ] Kill ring (yank/paste system)
+- [ ] Kill ring (clipboard history)
 - [ ] Undo/redo in command line
+- [ ] Visual selection mode
+- [ ] Incremental search in command line
+- [ ] Transpose words/characters
+
+#### 6. **Zsh-Style Aliases and Functions**
+- [ ] Suffix aliases: `alias -s py=python` (auto-execute .py files)
+- [ ] Global aliases: `alias -g L='| less'` (expand anywhere)
+- [ ] Function autoloading from fpath
+- [ ] Anonymous functions: `() { echo $1 } arg`
+- [ ] Function tracing and profiling
+
+#### 7. **Advanced Completion Features**
+- [ ] Completion styles (menu, list, etc.)
+- [ ] Completion matching control (case-insensitive, fuzzy)
+- [ ] Completion caching for slow completions
+- [ ] Dynamic completion updates
+- [ ] Completion preview
+- [ ] Smart case matching
+- [ ] Partial word completion
+- [ ] Approximate completion (typo correction)
 
 ### 📊 Implementation Priority Matrix
 
@@ -231,23 +307,27 @@ Based on user impact and implementation complexity:
 3. History features (`!!`, `!$`, Ctrl+R search)
 4. Command aliases
 5. Arithmetic expansion `$((...))`
-6. M28 shell integration (access to $1, $2, $?, shell command execution)
+6. Recursive globbing `**/*.js` (essential for modern development)
+7. M28 shell integration (access to $1, $2, $?, shell command execution)
 
 **Second Wave (Improves daily use):**
 1. Better completion system (programmable, git-aware)
 2. Startup files (.goshrc, .gosh_profile)
-3. Prompt customization (PS1, PROMPT_COMMAND)
+3. Prompt customization (PS1, PROMPT_COMMAND, RPROMPT)
 4. History expansion and sharing
-5. Brace expansion sequences `{1..10}`
+5. Brace expansion sequences `{1..10}`, `{01..20}`
 6. Process substitution `<(...)`, `>(...)`
+7. AUTO_CD option (type directory name to cd)
+8. Basic glob qualifiers `*(.)`, `*(/)`
 
 **Third Wave (Power user features):**
 1. Syntax highlighting while typing
-2. Auto-suggestions
-3. Command correction
-4. Coprocesses
+2. Auto-suggestions from history
+3. Command spelling correction
+4. Advanced glob qualifiers (time, size, permissions)
 5. Advanced line editing (vi/emacs modes)
-6. Shell options (set -o)
+6. Shell options system (setopt/unsetopt)
+7. Hook functions (precmd, preexec, chpwd)
 
 **Fourth Wave (Nice to have):**
 1. Extended glob qualifiers
