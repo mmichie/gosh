@@ -32,12 +32,6 @@ type Command struct {
 
 var m28Interpreter *m28adapter.Interpreter
 
-func init() {
-	// Initialize m28 interpreter as nil - it will be created on first use
-	// to avoid multiple initialization issues
-	m28Interpreter = nil
-}
-
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// Store here-document data for later processing
 	var hereDocs HereDocMap
@@ -588,6 +582,11 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 }
 
 func evaluateM28InCommand(cmdString string) (string, error) {
+	// Initialize m28 interpreter if needed
+	if m28Interpreter == nil {
+		m28Interpreter = m28adapter.NewInterpreter()
+	}
+
 	re := regexp.MustCompile(`\((.*?)\)`)
 	var lastErr error
 	result := re.ReplaceAllStringFunc(cmdString, func(match string) string {
