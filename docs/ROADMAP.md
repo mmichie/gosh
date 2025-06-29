@@ -112,8 +112,8 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] Brace expansion sequences: `{1..10}`, `{a..z}`
 
 #### 3. **Directory Navigation**
-- [ ] Directory stack (pushd, popd, dirs)
-- [ ] CDPATH for quick navigation
+- [x] Directory stack (pushd, popd, dirs)
+- [x] CDPATH for quick navigation
 - [ ] Auto-cd (type directory name to cd)
 - [ ] Named directories (hash -d)
 - [ ] Smart cd with fuzzy matching
