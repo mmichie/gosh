@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -581,25 +580,56 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	return true
 }
 
+// findBalancedParens finds all balanced parentheses expressions in a string
+func findBalancedParens(s string) []struct{ start, end int } {
+	var results []struct{ start, end int }
+	var stack []int
+
+	for i, ch := range s {
+		if ch == '(' {
+			stack = append(stack, i)
+		} else if ch == ')' && len(stack) > 0 {
+			start := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+
+			// Only consider it a complete expression if we're back at depth 0
+			if len(stack) == 0 {
+				results = append(results, struct{ start, end int }{start, i + 1})
+			}
+		}
+	}
+
+	return results
+}
+
 func evaluateM28InCommand(cmdString string) (string, error) {
 	// Initialize m28 interpreter if needed
 	if m28Interpreter == nil {
 		m28Interpreter = m28adapter.NewInterpreter()
 	}
 
-	re := regexp.MustCompile(`\((.*?)\)`)
+	// Find all balanced parentheses expressions
+	expressions := findBalancedParens(cmdString)
+
+	// Process from right to left to avoid index shifting issues
 	var lastErr error
-	result := re.ReplaceAllStringFunc(cmdString, func(match string) string {
+	result := cmdString
+
+	for i := len(expressions) - 1; i >= 0; i-- {
+		expr := expressions[i]
+		match := cmdString[expr.start:expr.end]
+
 		if m28adapter.IsLispExpression(match) {
-			result, err := m28Interpreter.Execute(match)
+			evalResult, err := m28Interpreter.Execute(match)
 			if err != nil {
 				lastErr = fmt.Errorf("in '%s': %v", match, err)
-				return match // Keep the original expression if there's an error
+				continue // Keep the original expression if there's an error
 			}
-			return result
+			// Replace the expression with its result
+			result = result[:expr.start] + evalResult + result[expr.end:]
 		}
-		return match
-	})
+	}
+
 	return result, lastErr
 }
 

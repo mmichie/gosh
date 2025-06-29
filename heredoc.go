@@ -54,13 +54,13 @@ func PreprocessHereDoc(input string) (string, HereDocMap, error) {
 		}
 
 		// Extract matches
-		_ = input[matches[0]:matches[1]] // fullMatch - not currently used
+		_ = input[matches[0]:matches[1]]           // fullMatch - not currently used
 		rawContent := input[matches[2]:matches[3]] // The string content with possible quotes
-		
+
 		// Handle quoted and unquoted strings
 		content := strings.TrimSpace(rawContent)
 		if (strings.HasPrefix(content, "\"") && strings.HasSuffix(content, "\"")) ||
-		   (strings.HasPrefix(content, "'") && strings.HasSuffix(content, "'")) {
+			(strings.HasPrefix(content, "'") && strings.HasSuffix(content, "'")) {
 			content = content[1 : len(content)-1]
 		}
 
@@ -103,7 +103,7 @@ func PreprocessHereDoc(input string) (string, HereDocMap, error) {
 		}
 
 		// Extract matches
-		_ = input[matches[0]:matches[1]] // fullMatch - not currently used
+		_ = input[matches[0]:matches[1]]                            // fullMatch - not currently used
 		dashFlag := strings.TrimSpace(input[matches[2]:matches[3]]) // "-" for tab stripping
 		delimiterWithQuotes := input[matches[4]:matches[5]]         // The delimiter, possibly with quotes
 
