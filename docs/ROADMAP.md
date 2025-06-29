@@ -97,6 +97,29 @@ To understand what's needed for gosh to be a bash replacement, here's what's mis
 - Environment variables, history
 - Directory navigation (cd, pushd/popd)
 
+## Fish Compatibility Gap
+
+Fish excels at user-friendliness with zero configuration. Here's what gosh needs to compete:
+
+### 🔴 Critical Fish Features Not in Gosh
+1. **Syntax Highlighting As You Type**: Immediate visual feedback
+2. **Auto-suggestions**: Grayed-out completions from history
+3. **Helpful Error Messages**: User-friendly, actionable errors
+4. **Abbreviations**: Expand in-place (better than aliases)
+5. **Web-based Configuration**: Visual config interface
+6. **Universal Variables**: Settings that persist across sessions
+
+### 🟡 Features Where Gosh Differs
+1. **POSIX Compatibility**: Gosh maintains it, fish doesn't
+2. **Scripting**: Fish's custom syntax vs M28's Python-like syntax
+3. **Philosophy**: Data processing (gosh) vs interactive UX (fish)
+
+### 🟢 Fish Features Already in Gosh
+- Basic command execution and pipes
+- Command history
+- Tab completion (basic)
+- Here-documents (fish added in v3.0)
+
 ## Zsh Compatibility Gap
 
 To understand what's needed for gosh to compete with zsh, here's what's missing:
@@ -184,8 +207,11 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] Prompt customization: PS1, PS2, PS3, PS4 variables
 - [ ] PROMPT_COMMAND for dynamic prompts
 - [ ] Command correction ("Did you mean...?")
-- [ ] Syntax highlighting while typing
-- [ ] Auto-suggestions based on history
+- [ ] Syntax highlighting while typing (fish-style immediate feedback)
+- [ ] Auto-suggestions based on history (fish-style grayed-out completions)
+- [ ] Abbreviations (fish-style): Expand in-place, better than aliases
+- [ ] Helpful error messages: User-friendly, actionable feedback
+- [ ] Universal variables: Persist settings across sessions
 
 #### 6. **Directory Navigation**
 - [x] Directory stack (pushd, popd, dirs)
@@ -296,6 +322,22 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] Smart case matching
 - [ ] Partial word completion
 - [ ] Approximate completion (typo correction)
+- [ ] Completion descriptions (fish-style)
+- [ ] Git-aware completions with status info
+
+#### 8. **Fish-Inspired Features**
+- [ ] Web-based configuration interface
+- [ ] Event system: `--on-event`, `--on-variable`
+- [ ] Built-in math command: `math "2 + 2"`
+- [ ] String manipulation commands: `string split`, `string join`
+- [ ] Random command for generating random values
+- [ ] Status command for checking last command success
+- [ ] Variable scoping: `-l` (local), `-g` (global), `-x` (export)
+- [ ] List variables with indexing: `$list[1]`, `$list[2..-1]`
+- [ ] Path variables without colons: `set PATH $PATH /new/path`
+- [ ] Function autoloading from directories
+- [ ] Key bindings system: `bind \cr 'command'`
+- [ ] Right prompt support (fish_right_prompt)
 
 ### 📊 Implementation Priority Matrix
 
@@ -305,29 +347,33 @@ Based on user impact and implementation complexity:
 1. Parameter expansion (`${var:-default}`, `${var#pattern}`, etc.)
 2. Shell arrays (indexed and associative)
 3. History features (`!!`, `!$`, Ctrl+R search)
-4. Command aliases
-5. Arithmetic expansion `$((...))`
-6. Recursive globbing `**/*.js` (essential for modern development)
-7. M28 shell integration (access to $1, $2, $?, shell command execution)
+4. Syntax highlighting while typing (fish-style immediate feedback)
+5. Auto-suggestions from history (fish-style grayed-out)
+6. Command aliases and abbreviations
+7. Arithmetic expansion `$((...))`
+8. Recursive globbing `**/*.js` (essential for modern development)
+9. M28 shell integration (access to $1, $2, $?, shell command execution)
 
 **Second Wave (Improves daily use):**
-1. Better completion system (programmable, git-aware)
+1. Better completion system (programmable, git-aware, with descriptions)
 2. Startup files (.goshrc, .gosh_profile)
 3. Prompt customization (PS1, PROMPT_COMMAND, RPROMPT)
-4. History expansion and sharing
-5. Brace expansion sequences `{1..10}`, `{01..20}`
-6. Process substitution `<(...)`, `>(...)`
-7. AUTO_CD option (type directory name to cd)
-8. Basic glob qualifiers `*(.)`, `*(/)`
+4. Helpful error messages (fish-style user-friendly)
+5. History expansion and sharing
+6. Brace expansion sequences `{1..10}`, `{01..20}`
+7. Process substitution `<(...)`, `>(...)`
+8. AUTO_CD option (type directory name to cd)
+9. Basic glob qualifiers `*(.)`, `*(/)`
 
 **Third Wave (Power user features):**
-1. Syntax highlighting while typing
-2. Auto-suggestions from history
-3. Command spelling correction
-4. Advanced glob qualifiers (time, size, permissions)
-5. Advanced line editing (vi/emacs modes)
-6. Shell options system (setopt/unsetopt)
-7. Hook functions (precmd, preexec, chpwd)
+1. Universal variables (fish-style persistent settings)
+2. Command spelling correction
+3. Advanced glob qualifiers (time, size, permissions)
+4. Advanced line editing (vi/emacs modes)
+5. Shell options system (setopt/unsetopt)
+6. Hook functions (precmd, preexec, chpwd)
+7. Web-based configuration (fish-style)
+8. Event system for automation
 
 **Fourth Wave (Nice to have):**
 1. Extended glob qualifiers
@@ -338,14 +384,19 @@ Based on user impact and implementation complexity:
 
 ### 🎯 Strategic Approach
 
-Rather than copying all zsh features, gosh should:
+Rather than copying all features from other shells, gosh should:
 1. **Prioritize data processing**: Leverage M28 and record streams as the killer feature
 2. **Modernize shell UX**: Better error messages, visual feedback, progressive disclosure
 3. **Cherry-pick essentials**: Focus on the 20% of features that handle 80% of use cases
 4. **Integrate with modern tools**: First-class JSON, API calls, cloud services
 5. **M28 as the scripting language**: No need for bash/zsh scripting syntax - use M28's Python-like syntax for everything
+6. **Learn from fish's UX philosophy**: 
+   - Sane defaults that work out of the box
+   - Helpful, user-friendly error messages
+   - Visual feedback (syntax highlighting, auto-suggestions)
+   - Zero-configuration productivity
 
-This positions gosh not as "another zsh" but as "the shell for the API age" - combining traditional shell power with modern data processing capabilities.
+This positions gosh not as "another zsh" but as "the shell for the API age" - combining fish's excellent UX, traditional shell power, and modern data processing capabilities.
 
 ### 📝 M28 Shell Scripting Examples
 
