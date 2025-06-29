@@ -72,6 +72,31 @@ Transform gosh into a data-oriented shell by implementing record streams. See [R
    - to-chart for visualizations
    - Plugin system for custom formats
 
+## Bash Compatibility Gap
+
+To understand what's needed for gosh to be a bash replacement, here's what's missing:
+
+### 🔴 Critical Bash Features Not Yet in Gosh
+1. **Parameter Expansion**: The `${var:-default}` family of expansions
+2. **Arrays**: Both indexed `arr=(a b c)` and associative arrays
+3. **History Expansion**: `!!`, `!$`, `^old^new`
+4. **Arithmetic**: `$((2+2))`, `let`, `(( ))` constructs
+5. **Aliases**: `alias` command for shortcuts
+6. **Special Variables**: `$$`, `$!`, `$0`, positional parameters
+7. **Startup Files**: `.bashrc`, `.bash_profile` equivalents
+
+### 🟡 Bash Features with Different Approach in Gosh
+1. **Control Flow**: Bash uses `if/then/fi`, gosh uses M28 Lisp
+2. **Functions**: Bash functions vs M28 `def`
+3. **Scripting**: Bash syntax vs M28 Python-like syntax
+
+### 🟢 Bash Features Already in Gosh
+- Pipes, redirection, job control
+- Command substitution, wildcards
+- Here-docs, logical operators
+- Environment variables, history
+- Directory navigation (cd, pushd/popd)
+
 ## Comparison with Zsh: Feature Delta Analysis
 
 To make gosh a viable daily-driver shell, we need to understand what users expect from modern shells. Here's a comprehensive comparison with zsh, one of the most feature-rich shells available.
@@ -110,29 +135,67 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 - [ ] Array expansion: `${array[@]}`, `${#array[@]}`
 - [ ] Arithmetic expansion: `$((expression))`
 - [ ] Brace expansion sequences: `{1..10}`, `{a..z}`
+- [ ] Special parameters: `$$` (PID), `$!` (last background PID), `$0` (script name)
 
-#### 3. **Directory Navigation**
+#### 3. **Shell Arrays** (Not replaced by M28)
+- [ ] Indexed arrays: `arr=(one two three)`
+- [ ] Array access: `${arr[0]}`, `${arr[@]}`, `${arr[*]}`
+- [ ] Array slicing: `${arr[@]:1:2}`
+- [ ] Array length: `${#arr[@]}`
+- [ ] Array assignment: `arr[5]=value`
+- [ ] Associative arrays: `declare -A map`
+
+#### 4. **History Features**
+- [ ] History expansion: `!!` (last command), `!$` (last arg), `!^` (first arg)
+- [ ] History search: `!pattern` (last command matching pattern)
+- [ ] History substitution: `^old^new` (replace in last command)
+- [ ] Shared history between sessions
+- [ ] History timestamps
+- [ ] HISTCONTROL options (ignoredups, ignorespace)
+- [ ] Ctrl+R reverse history search
+
+#### 5. **Interactive Shell Features**
+- [ ] Command aliases: `alias ll='ls -la'`
+- [ ] Shell options: `set -o` / `set +o` (errexit, nounset, pipefail, etc.)
+- [ ] Prompt customization: PS1, PS2, PS3, PS4 variables
+- [ ] PROMPT_COMMAND for dynamic prompts
+- [ ] Command correction ("Did you mean...?")
+- [ ] Syntax highlighting while typing
+- [ ] Auto-suggestions based on history
+
+#### 6. **Directory Navigation**
 - [x] Directory stack (pushd, popd, dirs)
 - [x] CDPATH for quick navigation
 - [ ] Auto-cd (type directory name to cd)
 - [ ] Named directories (hash -d)
 - [ ] Smart cd with fuzzy matching
+- [ ] `cd -` history (not just previous dir)
 
-#### 4. **Interactive Features**
-- [ ] Command correction ("Did you mean...?")
-- [ ] Shared history between sessions
-- [ ] History substring search (Ctrl+R improvements)
-- [ ] Syntax highlighting while typing
-- [ ] Auto-suggestions based on history
-- [ ] Programmable prompt with git status
-
-#### 5. **Completion System**
+#### 7. **Completion System**
 - [ ] Context-aware completions
 - [ ] Completion for command options/flags
-- [ ] Customizable completion functions
+- [ ] Programmable completion (`complete` command)
 - [ ] Remote file completion (scp, ssh)
 - [ ] Git-aware completion
 - [ ] Man page based completion
+- [ ] Hostname completion from known_hosts
+- [ ] Variable name completion
+
+#### 8. **Process and Job Control**
+- [ ] Process substitution: `<(command)`, `>(command)`
+- [ ] Coprocesses: `coproc name { command; }`
+- [ ] Disown command to detach jobs
+- [ ] Wait command with job specs
+- [ ] Job notifications for background jobs
+- [ ] SIGCHLD handling
+
+#### 9. **Startup and Configuration**
+- [ ] Startup files: `.goshrc`, `.gosh_profile`, `.goshenv`
+- [ ] System-wide config: `/etc/goshrc`
+- [ ] Login vs non-login shell distinction
+- [ ] Interactive vs non-interactive detection
+- [ ] RC file sourcing order
+- [ ] Custom module/plugin loading
 
 ### 🔧 Nice-to-Have Features (Medium Priority)
 
@@ -163,25 +226,35 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 Based on user impact and implementation complexity:
 
 **Immediate Priority (Makes gosh usable as primary shell):**
-1. M28 shell integration (access to $1, $2, $?, shell command execution)
-2. Parameter expansion
-3. Better completion system
-4. Shared history
-5. Directory stack
+1. Parameter expansion (`${var:-default}`, `${var#pattern}`, etc.)
+2. Shell arrays (indexed and associative)
+3. History features (`!!`, `!$`, Ctrl+R search)
+4. Command aliases
+5. Arithmetic expansion `$((...))`
+6. M28 shell integration (access to $1, $2, $?, shell command execution)
 
 **Second Wave (Improves daily use):**
-1. Command correction
-2. Syntax highlighting
-3. Advanced globbing
-4. Git prompt integration
-5. Arithmetic expansion
+1. Better completion system (programmable, git-aware)
+2. Startup files (.goshrc, .gosh_profile)
+3. Prompt customization (PS1, PROMPT_COMMAND)
+4. History expansion and sharing
+5. Brace expansion sequences `{1..10}`
+6. Process substitution `<(...)`, `>(...)`
 
 **Third Wave (Power user features):**
-1. Associative arrays
-2. Extended glob qualifiers
-3. Loadable modules
+1. Syntax highlighting while typing
+2. Auto-suggestions
+3. Command correction
+4. Coprocesses
+5. Advanced line editing (vi/emacs modes)
+6. Shell options (set -o)
+
+**Fourth Wave (Nice to have):**
+1. Extended glob qualifiers
+2. Named directories
+3. Plugin architecture
 4. Theme system
-5. Advanced line editing
+5. Remote file completion
 
 ### 🎯 Strategic Approach
 
