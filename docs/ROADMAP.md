@@ -608,7 +608,7 @@ The following tasks have been identified as the next items to implement, based o
     - Statistical functions (sum, average, percentile)
     - Time/date functions for temporal data
 
-□ **Stream Processing Library**  
+□ **Stream Processing Library**
     - Lazy evaluation for infinite streams
     - Parallel processing primitives
     - Stream combinators (merge, zip, partition)
@@ -625,6 +625,182 @@ The following tasks have been identified as the next items to implement, based o
     - Stream processing optimizations
     - Visual debugger for Lisp pipelines
     - Performance profiling tools
+
+## Async/Parallel Primitives & Error Handling
+
+Modern shells need better primitives for concurrent execution and error handling. M28 already provides powerful async/parallel features and exception handling - we need to integrate them with shell semantics.
+
+### Phase 1: Gosh-Specific M28 Builtins (High Priority)
+
+□ **Shell Execution Functions**
+    - `shell`: Run command, return stdout string (simple case)
+    - `shell_result`: Run command, return CommandResult with exit code, stdout, stderr
+    - `shell_async`: Run command asynchronously, return Task for await
+    - `shell_pipeline`: Run multi-command pipeline with full control
+    - Access to shell environment (getenv, setenv)
+    - Access to job control from M28
+
+□ **CommandResult Type**
+    - `.exit_code`: Exit code of command
+    - `.stdout`: Standard output as string
+    - `.stderr`: Standard error as string
+    - `.command`: Original command string
+    - `.ok`: Boolean for success (exit_code == 0)
+    - `.unwrap()`: Get stdout or raise CommandError
+    - `.unwrap_or(default)`: Get stdout or default value
+
+□ **Shell Error Types**
+    - `CommandError`: Command failed with non-zero exit
+    - `PipelineError`: Pipeline stage failed with context
+    - `TimeoutError`: Command exceeded timeout
+    - Error chaining to preserve context
+
+### Phase 2: M28 Standard Library for Shell (High Priority)
+
+Create `~/.m28/gosh/` standard library modules that users can import:
+
+□ **concurrent.m28 - Async Patterns**
+    - `parallel(*funcs)`: Run multiple functions concurrently
+    - `parallel_map(func, items, concurrency=4)`: Controlled parallel map
+    - `timeout(seconds, func)`: Run function with timeout
+    - `race(*tasks)`: Return first completed task result
+    - Channel-based patterns for complex workflows
+    - Worker pool implementation
+
+□ **result.m28 - Result Types**
+    - `CommandResult` class implementation
+    - `Result` type for general success/error handling
+    - Try/unwrap patterns
+    - Result combinators (map, and_then, or_else)
+
+□ **resilience.m28 - Error Recovery**
+    - `retry(func, max_attempts=3, backoff=1.0)`: Retry with exponential backoff
+    - `with_fallback(primary, fallback)`: Try primary, use fallback on error
+    - `circuit_breaker`: Prevent cascading failures
+    - `timeout_with_fallback`: Timeout with graceful degradation
+
+□ **pipeline.m28 - Error-Aware Pipelines**
+    - `try_pipeline(*stages)`: Pipeline with error context preservation
+    - `PipelineError` with stage information
+    - Pipeline composition and reusability
+    - Conditional pipeline execution
+
+### Phase 3: Integration Examples (Medium Priority)
+
+□ **Documentation & Examples**
+    - Create comprehensive examples showing M28 async patterns
+    - Document how to use channels for shell pipelines
+    - Show error handling patterns for shell scripts
+    - Performance comparison vs traditional approaches
+
+□ **Common Patterns Library**
+    - Parallel command execution (e.g., deploy multiple services)
+    - Resilient API calls with retry
+    - Complex multi-stage pipelines with error recovery
+    - Real-time monitoring with channels
+    - Data enrichment from multiple sources
+
+### What M28 Already Provides ✓
+
+M28 has robust async and error handling built-in:
+- **Tasks**: `create_task`, `await`, `async def` syntax
+- **Channels**: Go-style channels with `send!`, `recv!`, `select`
+- **Gather**: Run multiple tasks concurrently with `(gather task1 task2 ...)`
+- **Go form**: Spawn goroutines with `(go expr)`
+- **Try/Except/Finally**: Full exception handling with custom types
+- **Exception chaining**: Track error causes through multiple layers
+- **Context preservation**: Full tracebacks maintained
+
+### Example Usage (After Implementation)
+
+```lisp
+# Parallel deployment with error handling
+(import concurrent resilience)
+
+(def deploy-services ()
+  "Deploy multiple services in parallel with retry"
+  (= services ["api" "worker" "frontend"])
+
+  # Create async tasks for each service
+  (= tasks
+    [(shell_async f"docker-compose up -d {svc}")
+     for svc in services])
+
+  # Gather results with error handling
+  (= results [])
+  (for (svc, task) in (zip services tasks)
+    (try
+      (= result (await task))
+      (results.append {"service": svc, "status": "ok", "output": result.stdout})
+      (except CommandError (e)
+        (results.append {
+          "service": svc,
+          "status": "failed",
+          "error": e.result.stderr,
+          "exit_code": e.result.exit_code}))))
+
+  results)
+
+# Resilient API pipeline
+(def fetch-with-retry (url)
+  "Fetch URL with retry and timeout"
+  (retry
+    (lambda ()
+      (timeout 10
+        (lambda () (shell_result f"curl -f {url}"))))
+    max_attempts=3
+    backoff=1.5))
+
+# Parallel processing with worker pool
+(def process-logs (log-files)
+  "Process multiple log files in parallel"
+  (parallel_map
+    (lambda (f)
+      (try
+        (= lines (shell f"grep ERROR {f}"))
+        {"file": f, "errors": (len (lines.split "\n"))}
+        (except (e)
+          {"file": f, "error": str(e)})))
+    log-files
+    concurrency=4))
+
+# Channel-based pipeline
+(def monitor-system ()
+  "Real-time system monitoring with channels"
+  (= metrics_ch (Channel 100))
+
+  # Producers: collect metrics
+  (go
+    (while true
+      (= cpu (shell "top -l 1 | grep 'CPU usage'"))
+      (send! metrics_ch {"type": "cpu", "value": cpu})
+      (sleep 1)))
+
+  (go
+    (while true
+      (= mem (shell "vm_stat"))
+      (send! metrics_ch {"type": "memory", "value": mem})
+      (sleep 5)))
+
+  # Consumer: process and alert
+  (while true
+    (= metric (recv! metrics_ch))
+    (if (needs-alert? metric)
+      (send-alert metric))))
+```
+
+### Implementation Approach
+
+1. **Phase 1** (Immediate): Add `shell_result` and `shell_async` builtins to `m28adapter/adapter.go`
+2. **Phase 2** (Near-term): Create standard library in `~/.m28/gosh/`:
+   - `concurrent.m28` - Async patterns built on M28's primitives
+   - `result.m28` - Result types for error handling
+   - `resilience.m28` - Retry/fallback/timeout patterns
+   - `pipeline.m28` - Error-aware pipeline composition
+3. **Phase 3** (Medium-term): Documentation and examples showing idiomatic usage
+4. **Phase 4** (Long-term): Job control integration with M28 tasks
+
+This approach leverages M28's existing async and error handling without requiring changes to M28 itself. The standard library provides high-level patterns, while power users can use M28's primitives directly.
 
 ## User Experience
 
