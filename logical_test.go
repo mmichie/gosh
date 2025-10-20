@@ -95,7 +95,7 @@ func logCommandStructure(cmd *Command) string {
 		fmt.Fprintf(&output, "    FirstPipeline Commands: %d\n", len(block.FirstPipeline.Commands))
 
 		for j, command := range block.FirstPipeline.Commands {
-			fmt.Fprintf(&output, "      Command %d: %v\n", j, command.Parts)
+			fmt.Fprintf(&output, "      Command %d: %v\n", j, getCommandParts(command))
 		}
 
 		fmt.Fprintf(&output, "    RestPipelines: %d\n", len(block.RestPipelines))
@@ -104,7 +104,7 @@ func logCommandStructure(cmd *Command) string {
 			fmt.Fprintf(&output, "      Pipeline %d Commands: %d\n", j, len(pipeline.Pipeline.Commands))
 
 			for k, command := range pipeline.Pipeline.Commands {
-				fmt.Fprintf(&output, "        Command %d: %v\n", k, command.Parts)
+				fmt.Fprintf(&output, "        Command %d: %v\n", k, getCommandParts(command))
 			}
 		}
 	}

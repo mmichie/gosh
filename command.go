@@ -124,9 +124,27 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var inputCleanup func()
 	lastOutput := cmd.Stdin
 
-	// If there's only one command, check for simple redirection
+	// If there's only one command, check for simple execution (non-pipeline)
 	if len(pipeline.Commands) == 1 {
-		simpleCmd := pipeline.Commands[0]
+		cmdElem := pipeline.Commands[0]
+
+		// Handle subshells
+		if cmdElem.Subshell != nil {
+			return cmd.executeSubshell(cmdElem.Subshell, lastOutput)
+		}
+
+		// Handle command groups
+		if cmdElem.CommandGroup != nil {
+			return cmd.executeCommandGroup(cmdElem.CommandGroup, lastOutput)
+		}
+
+		// Handle simple commands
+		if cmdElem.Simple == nil {
+			cmd.ReturnCode = 1
+			return false
+		}
+
+		simpleCmd := cmdElem.Simple
 
 		// Check if the command is an M28 Lisp expression first
 		cmdString := strings.Join(simpleCmd.Parts, " ")
@@ -231,7 +249,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				LogicalBlocks: []*parser.LogicalBlock{
 					{
 						FirstPipeline: &parser.Pipeline{
-							Commands: []*parser.SimpleCommand{simpleCmd},
+							Commands: []*parser.CommandElement{{Simple: simpleCmd}},
 						},
 					},
 				},
@@ -281,7 +299,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 						LogicalBlocks: []*parser.LogicalBlock{
 							{
 								FirstPipeline: &parser.Pipeline{
-									Commands: []*parser.SimpleCommand{simpleCmd},
+									Commands: []*parser.CommandElement{{Simple: simpleCmd}},
 								},
 							},
 						},
@@ -341,12 +359,27 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var pipes []*io.PipeWriter
 
 	// Manual background detection: check if the last command has background flag
-	if len(pipeline.Commands) > 0 && pipeline.Commands[len(pipeline.Commands)-1].Background {
-		pipeline.Background = true
+	if len(pipeline.Commands) > 0 {
+		lastElem := pipeline.Commands[len(pipeline.Commands)-1]
+		if (lastElem.Simple != nil && lastElem.Simple.Background) ||
+			(lastElem.Subshell != nil && lastElem.Subshell.Background) ||
+			(lastElem.CommandGroup != nil && lastElem.CommandGroup.Background) {
+			pipeline.Background = true
+		}
 	}
 
 	// Process each command in the pipeline
-	for i, simpleCmd := range pipeline.Commands {
+	for i, cmdElem := range pipeline.Commands {
+		// For subshells and command groups in pipelines, we need special handling
+		// For now, let's focus on simple commands in pipelines
+		// TODO: Handle subshells and command groups in pipelines
+		if cmdElem.Simple == nil {
+			fmt.Fprintf(cmd.Stderr, "Subshells and command groups in pipelines not yet supported\n")
+			cmd.ReturnCode = 1
+			return false
+		}
+
+		simpleCmd := cmdElem.Simple
 		cmdString := strings.Join(simpleCmd.Parts, " ")
 
 		// Check if the command is an M28 Lisp expression
@@ -411,7 +444,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				LogicalBlocks: []*parser.LogicalBlock{
 					{
 						FirstPipeline: &parser.Pipeline{
-							Commands: []*parser.SimpleCommand{simpleCmd},
+							Commands: []*parser.CommandElement{{Simple: simpleCmd}},
 						},
 					},
 				},
@@ -734,4 +767,75 @@ func (cmd *Command) setupFileDescriptorDuplication(dupType string) error {
 	default:
 		return fmt.Errorf("unsupported file descriptor duplication: %s", dupType)
 	}
+}
+
+// executeSubshell executes commands in a subshell with isolated environment
+func (cmd *Command) executeSubshell(subshell *parser.Subshell, input io.Reader) bool {
+	// Create a new command for the subshell
+	subCmd := &Command{
+		Command:    subshell.Command,
+		Stdin:      input,
+		Stdout:     cmd.Stdout,
+		Stderr:     cmd.Stderr,
+		JobManager: cmd.JobManager,
+		HereDocs:   cmd.HereDocs,
+	}
+
+	// Subshells need environment isolation
+	// For now, we'll execute in the same process but save/restore state
+	// A full implementation would fork a new process
+
+	// Save current environment state
+	state := GetGlobalState()
+	origCWD := state.GetCWD()
+	origEnv := os.Environ()
+
+	// Execute the subshell command
+	subCmd.Run()
+
+	// Restore environment state (subshell changes don't affect parent)
+	state.UpdateCWD(origCWD)
+
+	// Restore environment variables
+	// Clear current env
+	for _, envVar := range os.Environ() {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) > 0 {
+			os.Unsetenv(parts[0])
+		}
+	}
+	// Restore original env
+	for _, envVar := range origEnv {
+		parts := strings.SplitN(envVar, "=", 2)
+		if len(parts) == 2 {
+			os.Setenv(parts[0], parts[1])
+		}
+	}
+
+	// Set the return code from the subshell
+	cmd.ReturnCode = subCmd.ReturnCode
+
+	return cmd.ReturnCode == 0
+}
+
+// executeCommandGroup executes grouped commands without environment isolation
+func (cmd *Command) executeCommandGroup(group *parser.CommandGroup, input io.Reader) bool {
+	// Create a new command for the group
+	groupCmd := &Command{
+		Command:    group.Command,
+		Stdin:      input,
+		Stdout:     cmd.Stdout,
+		Stderr:     cmd.Stderr,
+		JobManager: cmd.JobManager,
+		HereDocs:   cmd.HereDocs,
+	}
+
+	// Execute the grouped commands
+	// Unlike subshells, command groups share the environment with the parent
+	groupCmd.Run()
+
+	// Set the return code from the group
+	cmd.ReturnCode = groupCmd.ReturnCode
+
+	return cmd.ReturnCode == 0
 }

@@ -53,6 +53,14 @@ func init() {
 	builtins["shift"] = shiftCommand
 }
 
+// Helper function to extract Parts from a CommandElement
+func getCommandParts(elem *parser.CommandElement) []string {
+	if elem.Simple != nil {
+		return elem.Simple.Parts
+	}
+	return []string{}
+}
+
 func cd(cmd *Command) error {
 	var targetDir string
 	gs := GetGlobalState()
@@ -62,8 +70,9 @@ func cd(cmd *Command) error {
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
 		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
 		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
-		if len(firstCommand.Parts) > 1 {
-			targetDir = firstCommand.Parts[1] // Getting the first argument
+		parts := getCommandParts(firstCommand)
+		if len(parts) > 1 {
+			targetDir = parts[1] // Getting the first argument
 		}
 	}
 
@@ -163,7 +172,7 @@ func echo(cmd *Command) error {
 		// The builtins should work with the current logical block being executed
 		block := cmd.Command.LogicalBlocks[0]
 		if block.FirstPipeline != nil && len(block.FirstPipeline.Commands) > 0 {
-			cmdParts := block.FirstPipeline.Commands[0].Parts
+			cmdParts := getCommandParts(block.FirstPipeline.Commands[0])
 			if len(cmdParts) > 1 {
 				args = cmdParts[1:] // Skip the command name
 			}
@@ -173,7 +182,7 @@ func echo(cmd *Command) error {
 		if len(args) == 0 && len(block.RestPipelines) > 0 {
 			for _, opPipeline := range block.RestPipelines {
 				if opPipeline.Pipeline != nil && len(opPipeline.Pipeline.Commands) > 0 {
-					cmdParts := opPipeline.Pipeline.Commands[0].Parts
+					cmdParts := getCommandParts(opPipeline.Pipeline.Commands[0])
 
 					if len(cmdParts) > 1 {
 						args = cmdParts[1:] // Skip the command name
@@ -317,14 +326,18 @@ func env(cmd *Command) error {
 }
 
 func export(cmd *Command) error {
-	if len(cmd.Command.LogicalBlocks) == 0 ||
-		cmd.Command.LogicalBlocks[0].FirstPipeline == nil ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) == 0 ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) < 2 {
+	cmdParts := []string{}
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		cmdParts = getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	}
+
+	if len(cmdParts) < 2 {
 		return fmt.Errorf("Usage: export NAME=VALUE")
 	}
 
-	assignment := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1]
+	assignment := cmdParts[1]
 	parts := strings.SplitN(assignment, "=", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("Invalid export syntax. Usage: export NAME=VALUE")
@@ -354,7 +367,7 @@ func alias(cmd *Command) error {
 		return nil
 	}
 
-	parts := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts
+	parts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
 	if len(parts) < 2 {
 		return fmt.Errorf("Usage: alias name='command'")
 	}
@@ -372,14 +385,18 @@ func alias(cmd *Command) error {
 }
 
 func unalias(cmd *Command) error {
-	if len(cmd.Command.LogicalBlocks) == 0 ||
-		cmd.Command.LogicalBlocks[0].FirstPipeline == nil ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) == 0 ||
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) < 2 {
+	cmdParts := []string{}
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		cmdParts = getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	}
+
+	if len(cmdParts) < 2 {
 		return fmt.Errorf("Usage: unalias name")
 	}
 
-	name := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1]
+	name := cmdParts[1]
 	RemoveAlias(name)
 	return nil
 }
@@ -450,12 +467,16 @@ func fg(cmd *Command) error {
 
 	// First check if an argument was provided
 	hasArg := false
+	cmdParts := []string{}
 	if cmd.Command != nil && len(cmd.Command.LogicalBlocks) > 0 &&
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 &&
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) >= 2 {
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		cmdParts = getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	}
+
+	if len(cmdParts) >= 2 {
 		// A job ID was provided
-		jobID, err = strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
+		jobID, err = strconv.Atoi(cmdParts[1])
 		if err != nil {
 			return fmt.Errorf("Invalid job ID: %v", err)
 		}
@@ -494,12 +515,16 @@ func bg(cmd *Command) error {
 
 	// First check if an argument was provided
 	hasArg := false
+	cmdParts := []string{}
 	if cmd.Command != nil && len(cmd.Command.LogicalBlocks) > 0 &&
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 &&
-		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts) >= 2 {
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		cmdParts = getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	}
+
+	if len(cmdParts) >= 2 {
 		// A job ID was provided
-		jobID, err = strconv.Atoi(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1])
+		jobID, err = strconv.Atoi(cmdParts[1])
 		if err != nil {
 			return fmt.Errorf("Invalid job ID: %v", err)
 		}
@@ -573,7 +598,8 @@ func prompt(cmd *Command) error {
 		return nil
 	}
 
-	newPrompt := strings.Join(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1:], " ")
+	cmdParts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	newPrompt := strings.Join(cmdParts[1:], " ")
 	err := SetPrompt(newPrompt)
 	if err != nil {
 		return fmt.Errorf("Failed to set new prompt: %v", err)
@@ -603,7 +629,8 @@ func runM28(cmd *Command) error {
 		return fmt.Errorf("Usage: m28 <expression>")
 	}
 
-	expression := strings.Join(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts[1:], " ")
+	cmdParts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+	expression := strings.Join(cmdParts[1:], " ")
 
 	// Get the global interpreter instance
 	interpreter := m28Interpreter
@@ -643,8 +670,9 @@ func pushd(cmd *Command) error {
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
 		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
 		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
-		if len(firstCommand.Parts) > 1 {
-			arg := firstCommand.Parts[1]
+		cmdParts := getCommandParts(firstCommand)
+		if len(cmdParts) > 1 {
+			arg := cmdParts[1]
 
 			// Check if it's a rotation argument (+n or -n)
 			if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
@@ -751,8 +779,9 @@ func popd(cmd *Command) error {
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
 		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
 		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
-		if len(firstCommand.Parts) > 1 {
-			arg := firstCommand.Parts[1]
+		cmdParts := getCommandParts(firstCommand)
+		if len(cmdParts) > 1 {
+			arg := cmdParts[1]
 
 			// Check if it's a rotation argument (+n or -n)
 			if strings.HasPrefix(arg, "+") || strings.HasPrefix(arg, "-") {
@@ -852,8 +881,9 @@ func dirs(cmd *Command) error {
 		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
 		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
 		firstCommand := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]
-		for i := 1; i < len(firstCommand.Parts); i++ {
-			arg := firstCommand.Parts[i]
+		cmdParts := getCommandParts(firstCommand)
+		for i := 1; i < len(cmdParts); i++ {
+			arg := cmdParts[i]
 			switch arg {
 			case "-c":
 				clearStack = true

@@ -154,7 +154,7 @@ func extractCommandArgs(cmd *Command, cmdName string) []string {
 		return []string{}
 	}
 
-	parts := cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts
+	parts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
 	if len(parts) <= 1 {
 		return []string{}
 	}

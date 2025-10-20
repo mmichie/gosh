@@ -582,11 +582,12 @@ These features are essential for gosh to be usable for basic shell scripting and
    - Repeated format for multiple arguments ✅
    - Comprehensive test coverage (50+ test cases) ✅
 
-□ **Subshells and Command Grouping**
-   - `( commands )` - Run commands in subshell with isolated environment
-   - `{ commands; }` - Group commands without creating subshell
-   - Proper environment variable isolation in subshells
-   - Exit status handling for grouped commands
+✅ **Subshells and Command Grouping**
+   - `( commands )` - Run commands in subshell with isolated environment ✅
+   - `{ commands; }` - Group commands without creating subshell ✅
+   - Proper environment variable isolation in subshells ✅
+   - Exit status handling for grouped commands ✅
+   - Test coverage for parsing and execution ✅
 
 □ **Shell Options and Debugging**
    - `set -e` (errexit) - Exit on command failure
@@ -1074,6 +1075,8 @@ to-table
 - Formatted output (`printf` with format specifiers, escape sequences, width/precision)
 - Positional parameters ($0, $1-$9, ${10+}, $#, $@, $*, shift)
 - Special variables ($$, $!, $?, $PPID, $RANDOM, $SECONDS)
+- Subshells `( commands )` with environment isolation
+- Command grouping `{ commands; }` without subshell
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)

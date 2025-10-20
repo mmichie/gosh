@@ -18,7 +18,7 @@ func processEcho(cmd *Command) error {
 		// Get from the first command's parts - this is the current command
 		block := cmd.Command.LogicalBlocks[0]
 		if block.FirstPipeline != nil && len(block.FirstPipeline.Commands) > 0 {
-			cmdParts := block.FirstPipeline.Commands[0].Parts
+			cmdParts := getCommandParts(block.FirstPipeline.Commands[0])
 			if len(cmdParts) > 1 {
 				args = cmdParts[1:] // Skip the command name
 			}
@@ -33,7 +33,7 @@ func processEcho(cmd *Command) error {
 		if len(cmd.Command.LogicalBlocks) > 0 &&
 			cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
 			len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
-			cmdLine = strings.Join(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0].Parts, " ")
+			cmdLine = strings.Join(getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0]), " ")
 		}
 
 		// Extract args from the command line

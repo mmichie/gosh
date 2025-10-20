@@ -193,7 +193,7 @@ func extractCommandParts(cmd *Command) (string, []string) {
 	if len(cmd.Command.LogicalBlocks) > 0 {
 		block := cmd.Command.LogicalBlocks[0]
 		if len(block.FirstPipeline.Commands) > 0 {
-			cmdParts := block.FirstPipeline.Commands[0].Parts
+			cmdParts := getCommandParts(block.FirstPipeline.Commands[0])
 			if len(cmdParts) > 0 {
 				baseCommand = cmdParts[0]
 				if len(cmdParts) > 1 {

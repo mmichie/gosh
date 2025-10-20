@@ -15,10 +15,14 @@ var shellLexer = lexer.MustSimple([]lexer.SimpleRule{
 	{Name: "Or", Pattern: `\|\|`},     // Add OR operator pattern before Pipe
 	{Name: "Pipe", Pattern: `\|`},
 	{Name: "And", Pattern: `&&`},
+	{Name: "LParen", Pattern: `\(`},                         // Left parenthesis for subshells
+	{Name: "RParen", Pattern: `\)`},                         // Right parenthesis for subshells
+	{Name: "LBrace", Pattern: `\{`},                         // Left brace for command grouping
+	{Name: "RBrace", Pattern: `\}`},                         // Right brace for command grouping
 	{Name: "Redirect", Pattern: `2>&1|&>|>&|2>>|2>|>>|>|<`}, // Support advanced redirection (order matters!)
 	{Name: "Background", Pattern: `&`},                      // Add & for background execution (after redirect)
 	{Name: "Quote", Pattern: `'[^']*'|"[^"]*"`},
-	{Name: "Word", Pattern: `[^\s|><&'";]+`}, // Updated to exclude semicolons
+	{Name: "Word", Pattern: `[^\s|><&'";(){}]+`}, // Updated to exclude parentheses and braces
 })
 
 type Command struct {
@@ -36,8 +40,29 @@ type OpPipeline struct {
 }
 
 type Pipeline struct {
-	Commands   []*SimpleCommand `parser:"@@ ( '|' @@ )*"`
-	Background bool             `parser:"@Background?"`
+	Commands   []*CommandElement `parser:"@@ ( '|' @@ )*"`
+	Background bool              `parser:"@Background?"`
+}
+
+// CommandElement represents either a subshell, command group, or simple command
+type CommandElement struct {
+	Subshell     *Subshell     `parser:"@@"`
+	CommandGroup *CommandGroup `parser:"| @@"`
+	Simple       *SimpleCommand `parser:"| @@"`
+}
+
+// Subshell represents commands executed in a subshell: ( commands )
+type Subshell struct {
+	Command    *Command    `parser:"'(' @@ ')'"`
+	Redirects  []*Redirect `parser:"@@*"`
+	Background bool        `parser:"@Background?"`
+}
+
+// CommandGroup represents commands grouped without subshell: { commands; }
+type CommandGroup struct {
+	Command    *Command    `parser:"'{' @@ '}'"`
+	Redirects  []*Redirect `parser:"@@*"`
+	Background bool        `parser:"@Background?"`
 }
 
 type SimpleCommand struct {
@@ -159,29 +184,62 @@ func FormatCommand(cmd *Command) string {
 func formatPipeline(pipeline *Pipeline) string {
 	var result strings.Builder
 
-	// Format each command in the pipeline
-	for j, simpleCmd := range pipeline.Commands {
+	// Format each command element in the pipeline
+	for j, cmdElem := range pipeline.Commands {
 		if j > 0 {
 			result.WriteString(" | ")
 		}
-		result.WriteString(strings.Join(simpleCmd.Parts, " "))
-		for _, redirect := range simpleCmd.Redirects {
-			result.WriteString(" ")
-			result.WriteString(redirect.Type)
-			result.WriteString(" ")
-			result.WriteString(redirect.File)
-		}
-
-		// Add & symbol if the individual command should run in the background
-		// (This is for backward compatibility, but normally we'll use the pipeline background flag)
-		if simpleCmd.Background {
-			result.WriteString(" &")
-		}
+		result.WriteString(formatCommandElement(cmdElem))
 	}
 
 	// Add & symbol if the entire pipeline should run in the background
 	if pipeline.Background {
 		result.WriteString(" &")
+	}
+
+	return result.String()
+}
+
+func formatCommandElement(elem *CommandElement) string {
+	var result strings.Builder
+
+	if elem.Subshell != nil {
+		result.WriteString("( ")
+		result.WriteString(FormatCommand(elem.Subshell.Command))
+		result.WriteString(" )")
+		for _, redirect := range elem.Subshell.Redirects {
+			result.WriteString(" ")
+			result.WriteString(redirect.Type)
+			result.WriteString(" ")
+			result.WriteString(redirect.File)
+		}
+		if elem.Subshell.Background {
+			result.WriteString(" &")
+		}
+	} else if elem.CommandGroup != nil {
+		result.WriteString("{ ")
+		result.WriteString(FormatCommand(elem.CommandGroup.Command))
+		result.WriteString(" }")
+		for _, redirect := range elem.CommandGroup.Redirects {
+			result.WriteString(" ")
+			result.WriteString(redirect.Type)
+			result.WriteString(" ")
+			result.WriteString(redirect.File)
+		}
+		if elem.CommandGroup.Background {
+			result.WriteString(" &")
+		}
+	} else if elem.Simple != nil {
+		result.WriteString(strings.Join(elem.Simple.Parts, " "))
+		for _, redirect := range elem.Simple.Redirects {
+			result.WriteString(" ")
+			result.WriteString(redirect.Type)
+			result.WriteString(" ")
+			result.WriteString(redirect.File)
+		}
+		if elem.Simple.Background {
+			result.WriteString(" &")
+		}
 	}
 
 	return result.String()

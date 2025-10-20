@@ -161,10 +161,10 @@ func TestJobsCommandWithNoJobs(t *testing.T) {
 			LogicalBlocks: []*parser.LogicalBlock{
 				{
 					FirstPipeline: &parser.Pipeline{
-						Commands: []*parser.SimpleCommand{
-							{
+						Commands: []*parser.CommandElement{
+							{Simple: &parser.SimpleCommand{
 								Parts: []string{"jobs"},
-							},
+							}},
 						},
 					},
 				},
@@ -227,10 +227,10 @@ func TestFgCommand(t *testing.T) {
 			LogicalBlocks: []*parser.LogicalBlock{
 				{
 					FirstPipeline: &parser.Pipeline{
-						Commands: []*parser.SimpleCommand{
-							{
+						Commands: []*parser.CommandElement{
+							{Simple: &parser.SimpleCommand{
 								Parts: []string{"fg", fmt.Sprintf("%d", jobID)},
-							},
+							}},
 						},
 					},
 				},
