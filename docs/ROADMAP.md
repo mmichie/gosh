@@ -548,14 +548,19 @@ The following tasks have been identified as the next items to implement, based o
 
 These features are essential for gosh to be usable for basic shell scripting and daily interactive use.
 
-□ **Conditional Testing (`test`, `[`, `[[`)**
-   - Implement `test` / `[` command (POSIX test)
+✅ **Conditional Testing (`test`, `[`)**
+   - Implemented `test` and `[` commands (POSIX test) ✅
+   - File test operators: `-f` (file), `-d` (directory), `-e` (exists), `-r` (readable), `-w` (writable), `-x` (executable), `-s` (size > 0), `-L` (symlink) ✅
+   - String operators: `-z` (empty), `-n` (non-empty), `=`, `!=` ✅
+   - Numeric operators: `-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge` ✅
+   - Logical operators: `-a` (AND), `-o` (OR), `!` (NOT) ✅
+   - Comprehensive test coverage with 50+ test cases ✅
+
+□ **Extended Test (`[[`)**
    - Implement `[[` command (bash extended test with pattern matching)
-   - File test operators: `-f` (file), `-d` (directory), `-e` (exists), `-r` (readable), `-w` (writable), `-x` (executable), `-s` (size > 0), `-L` (symlink)
-   - String operators: `-z` (empty), `-n` (non-empty), `=`, `!=`, `<`, `>`
-   - Numeric operators: `-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge`
-   - Logical operators: `-a` (AND), `-o` (OR), `!` (NOT)
-   - Combined tests: `[[ -f file && -r file ]]`
+   - Pattern matching with `=~` for regex
+   - Glob pattern matching with `==`
+   - Different quoting rules from `[`
 
 □ **User Interaction**
    - `read` command for reading input into variables
@@ -1055,8 +1060,9 @@ to-table
 - Environment variables (`env`, `export`)
 - Command history with persistence (SQLite-backed)
 - Smart tab completion with argument history tracking
-- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false)
-- Command aliases (`alias`, `unalias`) ✅
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [)
+- Command aliases (`alias`, `unalias`)
+- Conditional testing (`test`, `[` with file, string, and numeric operators)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)

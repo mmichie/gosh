@@ -40,6 +40,8 @@ func init() {
 	// Add test utilities for conditional execution
 	builtins["true"] = trueCommand
 	builtins["false"] = falseCommand
+	builtins["test"] = testCommand
+	builtins["["] = testCommand
 }
 
 func cd(cmd *Command) error {
