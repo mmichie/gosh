@@ -43,7 +43,8 @@ func processEcho(cmd *Command) error {
 		}
 	}
 
-	// Process arguments to handle quotes and special variables
+	// Process arguments to handle quotes
+	// Note: Variable expansion (including $?) is now handled centrally in command.go
 	for i, arg := range args {
 		// Handle quotes - remove surrounding quotes if present
 		if (strings.HasPrefix(arg, "'") && strings.HasSuffix(arg, "'")) ||
@@ -51,12 +52,6 @@ func processEcho(cmd *Command) error {
 			// Remove surrounding quotes
 			arg = arg[1 : len(arg)-1]
 			args[i] = arg
-		}
-
-		// Replace $? with the previous command's return code
-		if strings.Contains(arg, "$?") {
-			// This is a simplification - in a full shell, we'd have a more robust variable expansion system
-			args[i] = strings.ReplaceAll(arg, "$?", "")
 		}
 	}
 

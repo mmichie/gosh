@@ -90,6 +90,11 @@ func (jm *JobManager) AddJob(command string, cmd *exec.Cmd) *Job {
 	jm.jobs[job.ID] = job
 	jm.nextID++
 
+	// Update the last background PID in global state
+	if cmd.Process != nil {
+		GetGlobalState().SetLastBackgroundPID(cmd.Process.Pid)
+	}
+
 	return job
 }
 

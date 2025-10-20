@@ -114,6 +114,9 @@ func (cmd *Command) Run() {
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+
+	// Update the last exit status in global state
+	GetGlobalState().SetLastExitStatus(cmd.ReturnCode)
 }
 
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
@@ -140,6 +143,9 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
+
+		// Expand variables in arguments (before wildcard expansion so variables can expand to patterns)
+		args = ExpandVariablesInArgs(args)
 
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)
@@ -358,6 +364,9 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 		// Process the command
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
+
+		// Expand variables in arguments (before wildcard expansion so variables can expand to patterns)
+		args = ExpandVariablesInArgs(args)
 
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)

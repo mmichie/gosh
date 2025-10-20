@@ -4,13 +4,18 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type GlobalState struct {
-	CWD         string
-	PreviousDir string
-	DirStack    []string // Directory stack for pushd/popd
-	mu          sync.RWMutex
+	CWD                string
+	PreviousDir        string
+	DirStack           []string // Directory stack for pushd/popd
+	ShellPID           int      // $$ - Current shell PID
+	LastBackgroundPID  int      // $! - Last background process PID
+	LastExitStatus     int      // $? - Exit status of last command
+	StartTime          time.Time // For calculating $SECONDS
+	mu                 sync.RWMutex
 }
 
 var globalState *GlobalState
@@ -43,9 +48,13 @@ func GetGlobalState() *GlobalState {
 
 		// Initialize the global state
 		globalState = &GlobalState{
-			CWD:         cwd,
-			PreviousDir: prevDir,
-			DirStack:    []string{cwd}, // Initialize with current directory
+			CWD:               cwd,
+			PreviousDir:       prevDir,
+			DirStack:          []string{cwd}, // Initialize with current directory
+			ShellPID:          os.Getpid(),
+			LastBackgroundPID: 0,
+			LastExitStatus:    0,
+			StartTime:         time.Now(),
 		}
 
 		// Also ensure environment variables are set
@@ -192,4 +201,46 @@ func (gs *GlobalState) RemoveStackElement(index int) string {
 	gs.DirStack = append(gs.DirStack[:index], gs.DirStack[index+1:]...)
 
 	return removed
+}
+
+// GetShellPID returns the shell's process ID ($$)
+func (gs *GlobalState) GetShellPID() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.ShellPID
+}
+
+// SetLastBackgroundPID sets the PID of the last background process ($!)
+func (gs *GlobalState) SetLastBackgroundPID(pid int) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.LastBackgroundPID = pid
+}
+
+// GetLastBackgroundPID returns the PID of the last background process ($!)
+func (gs *GlobalState) GetLastBackgroundPID() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.LastBackgroundPID
+}
+
+// SetLastExitStatus sets the exit status of the last command ($?)
+func (gs *GlobalState) SetLastExitStatus(status int) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.LastExitStatus = status
+}
+
+// GetLastExitStatus returns the exit status of the last command ($?)
+func (gs *GlobalState) GetLastExitStatus() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.LastExitStatus
+}
+
+// GetSeconds returns the number of seconds since the shell started ($SECONDS)
+func (gs *GlobalState) GetSeconds() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return int(time.Since(gs.StartTime).Seconds())
 }

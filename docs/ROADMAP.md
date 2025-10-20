@@ -603,15 +603,16 @@ These features are essential for gosh to be usable for basic shell scripting and
    - `$_` - Last argument of previous command
    - `shift` command to shift positional parameters
 
-□ **Special Variables**
-   - `$$` - Current shell PID
-   - `$!` - Last background process PID
-   - `$?` - Exit status of last command (partially implemented)
-   - `$-` - Current shell flags
-   - `$LINENO` - Current line number in script
-   - `$PPID` - Parent process PID
-   - `$RANDOM` - Random number
-   - `$SECONDS` - Seconds since shell start
+✅ **Special Variables**
+   - `$$` - Current shell PID ✅
+   - `$!` - Last background process PID ✅
+   - `$?` - Exit status of last command ✅
+   - `$PPID` - Parent process PID ✅
+   - `$RANDOM` - Random number (0-32767) ✅
+   - `$SECONDS` - Seconds since shell start ✅
+   - Comprehensive test coverage (20+ test cases) ✅
+   - `$-` - Current shell flags (pending - requires shell options implementation)
+   - `$LINENO` - Current line number in script (pending - requires script execution context)
 
 ### High Priority
 
@@ -1066,6 +1067,7 @@ to-table
 - Command aliases (`alias`, `unalias`)
 - Conditional testing (`test`, `[` with file, string, and numeric operators)
 - User input (`read` with -p prompt, -s silent, -n count, -t timeout, IFS splitting)
+- Special variables ($$, $!, $?, $PPID, $RANDOM, $SECONDS)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)
