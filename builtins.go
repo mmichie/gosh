@@ -45,6 +45,9 @@ func init() {
 
 	// User interaction
 	builtins["read"] = readCommand
+
+	// Formatted output
+	builtins["printf"] = printfCommand
 }
 
 func cd(cmd *Command) error {

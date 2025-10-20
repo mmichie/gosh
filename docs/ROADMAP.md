@@ -573,11 +573,14 @@ These features are essential for gosh to be usable for basic shell scripting and
    - `read -a array` for reading into array variables (pending array support)
    - `select` command for interactive menus (pending)
 
-□ **Formatted Output**
-   - `printf` command with C-style format strings
-   - Format specifiers: `%s` (string), `%d` (decimal), `%f` (float), `%x` (hex), `%o` (octal)
-   - Escape sequences: `\n`, `\t`, `\r`, `\\`, `\"`, `\'`
-   - Width and precision specifiers: `%10s`, `%.2f`, `%5d`
+✅ **Formatted Output (`printf`)**
+   - Implemented `printf` command with C-style format strings ✅
+   - Format specifiers: `%s` (string), `%d` (decimal), `%f` (float), `%x` (hex), `%X` (HEX), `%o` (octal), `%c` (char), `%%` (literal %) ✅
+   - Escape sequences: `\n`, `\t`, `\r`, `\b`, `\a`, `\f`, `\v`, `\\`, `\"`, `\'` ✅
+   - Width and precision specifiers: `%10s`, `%.2f`, `%5d`, `%8.2f` ✅
+   - Flags: `-` (left-justify), `+` (sign), `0` (zero-pad), ` ` (space), `#` (alternate form) ✅
+   - Repeated format for multiple arguments ✅
+   - Comprehensive test coverage (50+ test cases) ✅
 
 □ **Subshells and Command Grouping**
    - `( commands )` - Run commands in subshell with isolated environment
@@ -1063,10 +1066,11 @@ to-table
 - Environment variables (`env`, `export`)
 - Command history with persistence (SQLite-backed)
 - Smart tab completion with argument history tracking
-- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read)
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read, printf)
 - Command aliases (`alias`, `unalias`)
 - Conditional testing (`test`, `[` with file, string, and numeric operators)
 - User input (`read` with -p prompt, -s silent, -n count, -t timeout, IFS splitting)
+- Formatted output (`printf` with format specifiers, escape sequences, width/precision)
 - Special variables ($$, $!, $?, $PPID, $RANDOM, $SECONDS)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
