@@ -640,11 +640,11 @@ These features are essential for gosh to be usable for basic shell scripting and
    - `true` / `false` - Already implemented ✅
 
 □ **Command Introspection**
-   - `type` - Display command type (builtin, function, alias, file)
-   - `which` - Show full path of command
-   - `command -v` - Portable command checking
+   - `type` - Display command type (builtin, function, alias, file) ✅
+   - `which` - Show full path of command ✅
+   - `command -v` - Portable command checking ✅
    - `builtin` - Force builtin execution
-   - `command` - Execute command bypassing functions/aliases
+   - `command` - Execute command bypassing functions/aliases (execution mode pending)
    - `hash` - Manage command hash table
    - `enable` / `disable` - Enable/disable shell builtins
 
@@ -1068,7 +1068,7 @@ to-table
 - Environment variables (`env`, `export`)
 - Command history with persistence (SQLite-backed)
 - Smart tab completion with argument history tracking
-- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read, printf, shift)
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read, printf, shift, type, which, command)
 - Command aliases (`alias`, `unalias`)
 - Conditional testing (`test`, `[` with file, string, and numeric operators)
 - User input (`read` with -p prompt, -s silent, -n count, -t timeout, IFS splitting)
@@ -1078,6 +1078,7 @@ to-table
 - Subshells `( commands )` with environment isolation
 - Command grouping `{ commands; }` without subshell
 - Proper exit code handling (actual exit codes from commands, pipeline exit codes)
+- Command introspection (`type`, `which`, `command -v`)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)

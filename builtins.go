@@ -51,6 +51,11 @@ func init() {
 
 	// Positional parameters
 	builtins["shift"] = shiftCommand
+
+	// Command introspection
+	builtins["type"] = typeCommand
+	builtins["which"] = whichCommand
+	builtins["command"] = commandCommand
 }
 
 // Helper function to extract Parts from a CommandElement
