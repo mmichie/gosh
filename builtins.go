@@ -42,6 +42,9 @@ func init() {
 	builtins["false"] = falseCommand
 	builtins["test"] = testCommand
 	builtins["["] = testCommand
+
+	// User interaction
+	builtins["read"] = readCommand
 }
 
 func cd(cmd *Command) error {

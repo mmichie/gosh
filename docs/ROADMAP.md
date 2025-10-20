@@ -562,14 +562,16 @@ These features are essential for gosh to be usable for basic shell scripting and
    - Glob pattern matching with `==`
    - Different quoting rules from `[`
 
-□ **User Interaction**
-   - `read` command for reading input into variables
-   - `read -p prompt` for prompting user
-   - `read -a array` for reading into array variables
-   - `read -s` for silent input (passwords)
-   - `read -n count` for reading N characters
-   - `read -t timeout` for timeout
-   - `select` command for interactive menus
+✅ **User Interaction (`read`)**
+   - Implemented `read` command for reading input into variables ✅
+   - `read -p prompt` for prompting user ✅
+   - `read -s` for silent input (passwords) ✅
+   - `read -n count` for reading N characters ✅
+   - `read -t timeout` for timeout ✅
+   - Multi-variable support with IFS splitting ✅
+   - Comprehensive test coverage (50+ test cases) ✅
+   - `read -a array` for reading into array variables (pending array support)
+   - `select` command for interactive menus (pending)
 
 □ **Formatted Output**
    - `printf` command with C-style format strings
@@ -1060,9 +1062,10 @@ to-table
 - Environment variables (`env`, `export`)
 - Command history with persistence (SQLite-backed)
 - Smart tab completion with argument history tracking
-- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [)
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read)
 - Command aliases (`alias`, `unalias`)
 - Conditional testing (`test`, `[` with file, string, and numeric operators)
+- User input (`read` with -p prompt, -s silent, -n count, -t timeout, IFS splitting)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)
