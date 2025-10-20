@@ -77,13 +77,20 @@ Transform gosh into a data-oriented shell by implementing record streams. See [R
 To understand what's needed for gosh to be a bash replacement, here's what's missing:
 
 ### 🔴 Critical Bash Features Not Yet in Gosh
-1. **Parameter Expansion**: The `${var:-default}` family of expansions
-2. **Arrays**: Both indexed `arr=(a b c)` and associative arrays
-3. **History Expansion**: `!!`, `!$`, `^old^new`
-4. **Arithmetic**: `$((2+2))`, `let`, `(( ))` constructs
-5. **Aliases**: `alias` command for shortcuts
-6. **Special Variables**: `$$`, `$!`, `$0`, positional parameters
-7. **Startup Files**: `.bashrc`, `.bash_profile` equivalents
+1. **Conditional Testing**: `test`, `[`, `[[` commands with file/string/numeric tests
+2. **User Interaction**: `read` command for input, `select` for menus
+3. **Formatted Output**: `printf` with format strings
+4. **Subshells**: `( )` for isolated command groups
+5. **Shell Options**: `set -e`, `set -u`, `set -o pipefail`, `set -x`
+6. **Positional Parameters**: `$0`, `$1-$9`, `$#`, `$@`, `$*`, `shift`
+7. **Special Variables**: `$$`, `$!`, `$?`, `$_`, `$LINENO`
+8. **Parameter Expansion**: `${var:-default}`, `${var#pattern}`, `${var%pattern}`, `${var/old/new}`
+9. **Arrays**: Both indexed `arr=(a b c)` and associative arrays
+10. **History Expansion**: `!!`, `!$`, `^old^new`
+11. **Arithmetic**: `$((2+2))`, `let`, `(( ))` constructs
+12. **Essential Builtins**: `source`, `eval`, `trap`, `exec`, `unset`, `readonly`, `local`
+13. **Command Introspection**: `type`, `which`, `command -v`, `hash`
+14. **Startup Files**: `.bashrc`, `.bash_profile` equivalents (`.goshrc` planned)
 
 ### 🟡 Bash Features with Different Approach in Gosh
 1. **Control Flow**: Bash uses `if/then/fi`, gosh uses M28 Lisp
@@ -361,15 +368,22 @@ To make gosh a viable daily-driver shell, we need to understand what users expec
 Based on user impact and implementation complexity:
 
 **Immediate Priority (Makes gosh usable as primary shell):**
-1. Parameter expansion (`${var:-default}`, `${var#pattern}`, etc.)
-2. Shell arrays (indexed and associative)
-3. History features (`!!`, `!$`, Ctrl+R search)
-4. Syntax highlighting while typing (fish-style immediate feedback)
-5. Auto-suggestions from history (fish-style grayed-out)
-6. Command aliases and abbreviations
-7. Arithmetic expansion `$((...))`
-8. Recursive globbing `**/*.js` (essential for modern development)
-9. M28 shell integration (access to $1, $2, $?, shell command execution)
+1. **Conditional testing** (`test`, `[`, `[[` with file/string/numeric operators) - **CRITICAL**
+2. **User interaction** (`read`, `printf`, `select`) - **CRITICAL**
+3. **Positional parameters** (`$0`, `$1-$9`, `$@`, `$*`, `shift`) - **CRITICAL**
+4. **Special variables** (`$$`, `$!`, `$?`, `$_`) - **CRITICAL**
+5. **Shell options** (`set -e`, `set -u`, `set -o pipefail`, `set -x`) - **CRITICAL**
+6. **Subshells and grouping** (`( )`, `{ }`) - **CRITICAL**
+7. Essential builtins (`source`, `eval`, `trap`, `exec`, `unset`, `readonly`, `local`)
+8. Parameter expansion (`${var:-default}`, `${var#pattern}`, etc.)
+9. Shell arrays (indexed and associative)
+10. History features (`!!`, `!$`, Ctrl+R search)
+11. Syntax highlighting while typing (fish-style immediate feedback)
+12. Auto-suggestions from history (fish-style grayed-out)
+13. Command aliases and abbreviations (alias already implemented ✅)
+14. Arithmetic expansion `$((...))`
+15. Recursive globbing `**/*.js` (essential for modern development)
+16. M28 shell integration (access to $1, $2, $?, shell command execution)
 
 **Second Wave (Improves daily use):**
 1. M28-based configuration system (.goshrc in M28)
@@ -530,12 +544,111 @@ The following tasks have been identified as the next items to implement, based o
 
 ## Core Shell Features
 
+### Critical Priority - Shell Script Essentials
+
+These features are essential for gosh to be usable for basic shell scripting and daily interactive use.
+
+□ **Conditional Testing (`test`, `[`, `[[`)**
+   - Implement `test` / `[` command (POSIX test)
+   - Implement `[[` command (bash extended test with pattern matching)
+   - File test operators: `-f` (file), `-d` (directory), `-e` (exists), `-r` (readable), `-w` (writable), `-x` (executable), `-s` (size > 0), `-L` (symlink)
+   - String operators: `-z` (empty), `-n` (non-empty), `=`, `!=`, `<`, `>`
+   - Numeric operators: `-eq`, `-ne`, `-lt`, `-le`, `-gt`, `-ge`
+   - Logical operators: `-a` (AND), `-o` (OR), `!` (NOT)
+   - Combined tests: `[[ -f file && -r file ]]`
+
+□ **User Interaction**
+   - `read` command for reading input into variables
+   - `read -p prompt` for prompting user
+   - `read -a array` for reading into array variables
+   - `read -s` for silent input (passwords)
+   - `read -n count` for reading N characters
+   - `read -t timeout` for timeout
+   - `select` command for interactive menus
+
+□ **Formatted Output**
+   - `printf` command with C-style format strings
+   - Format specifiers: `%s` (string), `%d` (decimal), `%f` (float), `%x` (hex), `%o` (octal)
+   - Escape sequences: `\n`, `\t`, `\r`, `\\`, `\"`, `\'`
+   - Width and precision specifiers: `%10s`, `%.2f`, `%5d`
+
+□ **Subshells and Command Grouping**
+   - `( commands )` - Run commands in subshell with isolated environment
+   - `{ commands; }` - Group commands without creating subshell
+   - Proper environment variable isolation in subshells
+   - Exit status handling for grouped commands
+
+□ **Shell Options and Debugging**
+   - `set -e` (errexit) - Exit on command failure
+   - `set -u` (nounset) - Error on unset variable expansion
+   - `set -o pipefail` - Pipeline fails if any command fails
+   - `set -x` (xtrace) - Print commands before execution
+   - `set +o option` to disable options
+   - `set -` to reset positional parameters
+   - `shopt` for bash-specific options
+
+□ **Positional Parameters**
+   - `$0` - Script/shell name
+   - `$1-$9`, `${10}` - Command-line arguments
+   - `$#` - Number of arguments
+   - `$@` - All arguments as separate words
+   - `$*` - All arguments as single word
+   - `$_` - Last argument of previous command
+   - `shift` command to shift positional parameters
+
+□ **Special Variables**
+   - `$$` - Current shell PID
+   - `$!` - Last background process PID
+   - `$?` - Exit status of last command (partially implemented)
+   - `$-` - Current shell flags
+   - `$LINENO` - Current line number in script
+   - `$PPID` - Parent process PID
+   - `$RANDOM` - Random number
+   - `$SECONDS` - Seconds since shell start
+
 ### High Priority
 
 ✅ **Implemented: Advanced Redirection**
    - Support for file descriptor redirection (2>, &>, etc.)
    - Append redirection for error output (2>>)
    - File descriptor duplication (2>&1)
+
+□ **Essential Builtins**
+   - `source` / `.` - Load and execute shell scripts
+   - `eval` - Evaluate string as shell command
+   - `trap` - Set signal handlers and exit traps
+   - `exec` - Replace shell process with command
+   - `return` - Return from shell function
+   - `unset` - Remove variables or functions
+   - `readonly` - Make variables immutable
+   - `local` - Declare local variables in functions
+   - `declare` / `typeset` - Declare variables with attributes
+   - `:` (null command) - Do nothing successfully
+   - `true` / `false` - Already implemented ✅
+
+□ **Command Introspection**
+   - `type` - Display command type (builtin, function, alias, file)
+   - `which` - Show full path of command
+   - `command -v` - Portable command checking
+   - `builtin` - Force builtin execution
+   - `command` - Execute command bypassing functions/aliases
+   - `hash` - Manage command hash table
+   - `enable` / `disable` - Enable/disable shell builtins
+
+□ **Resource and Process Management**
+   - `ulimit` - Set/display resource limits
+   - `umask` - Set/display file creation mask
+   - `times` - Display process times
+   - `wait` - Wait for background jobs with job specs
+   - `disown` - Remove jobs from job table
+   - `suspend` - Suspend the shell
+
+□ **Advanced Job Control**
+   - Job specs: `%1`, `%+`, `%-`, `%job_name` syntax
+   - `wait` with specific job specs
+   - `disown` to detach jobs from shell
+   - Job change notifications
+   - Proper SIGCHLD handling
 
 ### High Priority (Supporting Record Streams)
 
@@ -577,12 +690,46 @@ The following tasks have been identified as the next items to implement, based o
    - Tab stripping with `<<-EOF` syntax
    - Support for quoted delimiters
 
+### Medium Priority
+
+□ **Parameter Expansion**
+   - Default values: `${var:-default}` (use default if unset)
+   - Assign default: `${var:=value}` (assign if unset)
+   - Error if unset: `${var:?error message}`
+   - Use alternate: `${var:+alternate}` (use alternate if set)
+   - Substring removal: `${var#pattern}` (shortest prefix), `${var##pattern}` (longest prefix)
+   - Substring removal: `${var%pattern}` (shortest suffix), `${var%%pattern}` (longest suffix)
+   - Pattern substitution: `${var/pattern/replacement}` (first match), `${var//pattern/replacement}` (all matches)
+   - Case modification: `${var^}` (uppercase first), `${var^^}` (uppercase all), `${var,}` (lowercase first), `${var,,}` (lowercase all)
+   - Length: `${#var}`
+   - Substring: `${var:offset:length}`
+
+□ **Arithmetic Expansion**
+   - Basic arithmetic: `$((expression))`
+   - Support for +, -, *, /, %, ** (exponentiation)
+   - Bitwise operators: &, |, ^, ~, <<, >>
+   - Comparison: ==, !=, <, >, <=, >=
+   - Logical: &&, ||, !
+   - Ternary: condition ? true_val : false_val
+   - Assignment operators: =, +=, -=, *=, /=, %=
+   - Pre/post increment/decrement: ++, --
+   - `let` command for arithmetic evaluation
+   - `(( ))` for arithmetic evaluation and testing
+
+□ **Brace Expansion**
+   - Comma lists: `{a,b,c}`
+   - Numeric sequences: `{1..10}`, `{10..1}`
+   - Zero-padded sequences: `{01..10}`
+   - Character sequences: `{a..z}`, `{A..Z}`
+   - Step values: `{0..100..5}` (0, 5, 10, ..., 100)
+   - Nested braces: `{a,b{1,2}}`
+
 ### Low Priority
 
-□ **Environment Variable Expansion**
-   - Enhance environment variable support
-   - Add variable substitution in more contexts
-   - Add parameter expansion (`${var:-default}`, `${var:=value}`, etc.)
+□ **Advanced Tilde Expansion**
+   - `~user` - Home directory of user
+   - `~+` - Current working directory (PWD)
+   - `~-` - Previous working directory (OLDPWD)
 
 □ **Process Substitution**
    - Implement process substitution (`<()` and `>()`)
@@ -595,10 +742,19 @@ The following tasks have been identified as the next items to implement, based o
 □ **Tab Completion Enhancements**
     - Expand tab completion to handle more complex scenarios
     - Add completion for command options and arguments
+    - `complete` command for programmable completion
+    - `compgen` for completion generation
+    - Context-aware completions (git branches, hostnames, etc.)
+    - Completion descriptions (fish-style)
+    - Remote file completion (scp, ssh)
+    - Variable name completion
 
 □ **Shell Functions**
-    - Add support for user-defined shell functions
+    - Add support for user-defined shell functions (native shell, not just M28)
     - Enable function arguments and return values
+    - `return` command for shell functions
+    - `local` for function-local variables
+    - Function autoloading
 
 ## M28 Lisp Integration (Critical for Record Streams)
 
@@ -895,14 +1051,20 @@ to-table
 - AND operator (`&&`) for conditional execution
 - OR operator (`||`) for conditional execution
 - Simple I/O redirection (`>`, `>>`, `<`)
-- Advanced redirection (2>, 2>&1, &>)
-- Environment variables
-- Command history
-- Basic tab completion
-- Built-in commands
-- M28 Lisp integration
+- Advanced redirection (2>, 2>&1, &>, 2>>)
+- Environment variables (`env`, `export`)
+- Command history with persistence (SQLite-backed)
+- Smart tab completion with argument history tracking
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false)
+- Command aliases (`alias`, `unalias`) ✅
+- M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)
 - Command substitution (`$(...)` and backticks)
 - Wildcard expansion (*, ?, [...], {...})
-- Here-documents (<<EOF) and here-strings (<<<)
+- Home directory expansion (~)
+- Here-documents (<<EOF, <<-EOF) and here-strings (<<<)
+- Directory stack (pushd, popd, dirs)
+- CDPATH support for quick directory navigation
+- cd - (return to previous directory)
+- Unified SQLite database for history and completion data
