@@ -1,7 +1,6 @@
 package gosh
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -85,7 +84,7 @@ func (cmd *Command) Run() {
 	for _, block := range cmd.Command.LogicalBlocks {
 
 		// Execute the first pipeline in the block
-		cmd.executePipelineImproved(block.FirstPipeline)
+		cmd.executePipeline(block.FirstPipeline)
 		var returnCode int = cmd.ReturnCode
 
 		// Process any logical operators (AND/OR) that follow
@@ -97,13 +96,13 @@ func (cmd *Command) Run() {
 			case "&&":
 				// AND: Only execute if previous was successful (return code 0)
 				if returnCode == 0 {
-					cmd.executePipelineImproved(opPipeline.Pipeline)
+					cmd.executePipeline(opPipeline.Pipeline)
 					returnCode = cmd.ReturnCode
 				}
 			case "||":
 				// OR: Only execute if previous failed (non-zero return code)
 				if returnCode != 0 {
-					cmd.executePipelineImproved(opPipeline.Pipeline)
+					cmd.executePipeline(opPipeline.Pipeline)
 					returnCode = cmd.ReturnCode
 				}
 			}
@@ -117,104 +116,7 @@ func (cmd *Command) Run() {
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 }
 
-// RunWithSemicolons is a legacy function, replaced by the improved Run implementation
-// This function is kept for reference only and shouldn't be called directly
-func (cmd *Command) RunWithSemicolons() {
-	cmd.StartTime = time.Now()
-	cmd.TTY = os.Getenv("TTY")
-	cmd.EUID = os.Geteuid()
-
-	// Execute all LogicalBlocks (commands separated by semicolons)
-	for _, block := range cmd.Command.LogicalBlocks {
-		// Process the logical block using the existing logic in command.go
-		// but scope it to just this block
-
-		// This is a critical part: for the builtins to work properly,
-		// we need to put the current block as the ONLY logical block in the command
-		singleBlockCmd := &parser.Command{
-			LogicalBlocks: []*parser.LogicalBlock{block},
-		}
-
-		// Create a scoped command for this logical block
-		blockCmd := &Command{
-			Command:    singleBlockCmd,
-			Stdin:      cmd.Stdin,
-			Stdout:     cmd.Stdout,
-			Stderr:     cmd.Stderr,
-			JobManager: cmd.JobManager,
-		}
-
-		// For simpler commands, don't use our complex scoping - fallback to original logic
-		// which is known to work for simple commands and logical operators
-		if len(cmd.Command.LogicalBlocks) == 1 {
-			// Execute the block directly with the original logic
-			// Execute the first pipeline in the logical block
-			cmd.executePipeline(block.FirstPipeline)
-			var returnCode int = cmd.ReturnCode
-
-			// Process the rest of the pipelines based on operator and previous result
-			for _, opPipeline := range block.RestPipelines {
-				// Check the operator and decide whether to execute the next pipeline
-				if opPipeline.Operator == "&&" {
-					// AND: Only execute if previous was successful (return code 0)
-					if returnCode == 0 {
-						cmd.executePipeline(opPipeline.Pipeline)
-						returnCode = cmd.ReturnCode
-					}
-				} else if opPipeline.Operator == "||" {
-					// OR: Only execute if previous failed (non-zero return code)
-					if returnCode != 0 {
-						cmd.executePipeline(opPipeline.Pipeline)
-						returnCode = cmd.ReturnCode
-					}
-				}
-			}
-
-			// Set the return code for this block
-			cmd.ReturnCode = returnCode
-
-			// Skip the remainder of the logic for simple cases
-			continue
-		}
-
-		// For multi-block commands (with semicolons), use the scoped approach
-		// Execute the first pipeline in the logical block
-		blockCmd.executePipeline(block.FirstPipeline)
-		var returnCode int = blockCmd.ReturnCode
-
-		// Process the rest of the pipelines based on operator and previous result
-		for _, opPipeline := range block.RestPipelines {
-			// Check the operator and decide whether to execute the next pipeline
-			if opPipeline.Operator == "&&" {
-				// AND: Only execute if previous was successful (return code 0)
-				if returnCode == 0 {
-					blockCmd.executePipeline(opPipeline.Pipeline)
-					returnCode = blockCmd.ReturnCode
-				}
-			} else if opPipeline.Operator == "||" {
-				// OR: Only execute if previous failed (non-zero return code)
-				if returnCode != 0 {
-					blockCmd.executePipeline(opPipeline.Pipeline)
-					returnCode = blockCmd.ReturnCode
-				}
-			}
-		}
-
-		// Set the return code for this block and propagate to parent command
-		blockCmd.ReturnCode = returnCode
-		cmd.ReturnCode = returnCode
-
-		// Each command separated by semicolons is independently executed
-		// The final return code will be from the last command
-	}
-
-	cmd.EndTime = time.Now()
-	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
-}
-
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
-	var cmds []*exec.Cmd
-	var pipes []*io.PipeWriter
 	var outputFile *os.File
 	var inputCleanup func()
 	lastOutput := cmd.Stdin
@@ -237,7 +139,10 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			return true
 		}
 
-		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
+		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
+
+		// Expand wildcards in arguments
+		args = ExpandWildcards(args)
 
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
@@ -249,6 +154,43 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				return false
 			}
 			defer inputCleanup()
+		}
+
+		// Handle file descriptor duplication (2>&1)
+		var originalStderr io.Writer = cmd.Stderr
+		if fdDupType == "2>&1" {
+			// Set stderr to the same destination as stdout
+			err := cmd.setupFileDescriptorDuplication(fdDupType)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error setting up file descriptor duplication: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			cmd.Stderr = cmd.Stdout
+			defer func() {
+				cmd.Stderr = originalStderr
+			}()
+		}
+
+		// Handle stderr redirection
+		var stderrFile *os.File
+		if stderrRedirectType != "" && stderrFilename != "" && stderrRedirectType != "&>" && stderrRedirectType != ">&" {
+			var err error
+			stderrFile, err = cmd.setupOutputRedirection(stderrRedirectType, stderrFilename)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "Error setting up stderr redirection: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+
+			// Use the error file as stderr, but remember to close it at the end
+			cmd.Stderr = stderrFile
+			defer func() {
+				if stderrFile != nil {
+					stderrFile.Close()
+					cmd.Stderr = originalStderr
+				}
+			}()
 		}
 
 		// Handle output redirection
@@ -264,19 +206,39 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 			// Use the output file as stdout, but remember to close it at the end
 			cmd.Stdout = outputFile
+
+			// For combined redirection (&> or >&), also redirect stderr to the same file
+			if outputRedirectType == "&>" || outputRedirectType == ">&" {
+				cmd.Stderr = outputFile
+				defer func() {
+					cmd.Stderr = originalStderr
+				}()
+			}
 		}
 
 		// Execute the command
 		var handled bool
 		if builtin, ok := builtins[cmdName]; ok {
-			// Handle builtin commands
+			// Handle builtin commands with a properly scoped command
+			// Create a temporary command that only contains this single command
+			singleCmd := &parser.Command{
+				LogicalBlocks: []*parser.LogicalBlock{
+					{
+						FirstPipeline: &parser.Pipeline{
+							Commands: []*parser.SimpleCommand{simpleCmd},
+						},
+					},
+				},
+			}
+
 			tmpCmd := &Command{
-				Command:    cmd.Command,
+				Command:    singleCmd, // Use the scoped command
 				Stdin:      lastOutput,
 				Stdout:     cmd.Stdout,
 				Stderr:     cmd.Stderr,
-				JobManager: cmd.JobManager, // Pass JobManager to builtins
+				JobManager: cmd.JobManager, // Pass the JobManager to ensure builtins can access it
 			}
+
 			err := builtin(tmpCmd)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
@@ -301,7 +263,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			execCmd.Stderr = cmd.Stderr
 
 			// Check if the command should run in the background
-			if simpleCmd.Background && cmd.JobManager != nil {
+			if simpleCmd.Background {
 				// Start the command but don't wait for it to complete
 				err := execCmd.Start()
 				if err != nil {
@@ -344,7 +306,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 					cmd.ReturnCode = 0
 				}
 			} else {
-				// Run command in foreground
+				// Run the command in the foreground (normal execution)
 				err := execCmd.Run()
 				if err != nil {
 					fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
@@ -356,7 +318,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			handled = true
 		}
 
-		// Restore original stdout if changed
+		// Restore original stdout and stderr if changed
 		if outputFile != nil {
 			cmd.Stdout = originalStdout
 			outputFile.Close()
@@ -368,10 +330,20 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	}
 
 	// Handle multi-command pipelines
+	// Set up the pipeline
+	var cmds []*exec.Cmd
+	var pipes []*io.PipeWriter
+
+	// Manual background detection: check if the last command has background flag
+	if len(pipeline.Commands) > 0 && pipeline.Commands[len(pipeline.Commands)-1].Background {
+		pipeline.Background = true
+	}
+
+	// Process each command in the pipeline
 	for i, simpleCmd := range pipeline.Commands {
 		cmdString := strings.Join(simpleCmd.Parts, " ")
 
-		// Check if the command is an M28 expression
+		// Check if the command is an M28 Lisp expression
 		if m28adapter.IsLispExpression(cmdString) {
 			result, err := m28Interpreter.Execute(cmdString)
 			if err != nil {
@@ -379,36 +351,19 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				cmd.ReturnCode = 1
 				return false
 			}
-			output := result + "\n"
-			if i < len(pipeline.Commands)-1 {
-				lastOutput = strings.NewReader(output)
-			} else {
-				fmt.Fprint(cmd.Stdout, output)
-			}
+			// For Lisp expressions in pipelines, we want to pass their output to the next command
+			lastOutput = strings.NewReader(result + "\n")
 			continue
 		}
 
-		// Evaluate any embedded M28 expressions
-		evaluatedCmd, err := evaluateM28InCommand(cmdString)
-		if err != nil {
-			fmt.Fprintf(cmd.Stderr, "M28 error in '%s': %v\n", cmdString, err)
-			cmd.ReturnCode = 1
-			return false
-		}
-
-		// Re-parse the command after M28 evaluation
-		parsedCmd, err := parser.Parse(evaluatedCmd)
-		if err != nil {
-			fmt.Fprintf(cmd.Stderr, "Parse error: %v\n", err)
-			cmd.ReturnCode = 1
-			return false
-		}
-		simpleCmd = parsedCmd.LogicalBlocks[0].FirstPipeline.Commands[0]
-
+		// Process the command
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
-		// Handle input redirection
-		if inputRedirectType == "<" && inputFilename != "" {
+		// Expand wildcards in arguments
+		args = ExpandWildcards(args)
+
+		// Handle input redirection for the first command
+		if i == 0 && inputRedirectType == "<" && inputFilename != "" {
 			var err error
 			lastOutput, inputCleanup, err = cmd.setupInputRedirection(inputFilename)
 			if err != nil {
@@ -419,8 +374,8 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			defer inputCleanup()
 		}
 
-		// Handle output redirection
-		if outputRedirectType != "" && outputFilename != "" {
+		// Handle output redirection for the last command
+		if i == len(pipeline.Commands)-1 && outputRedirectType != "" && outputFilename != "" {
 			var err error
 			outputFile, err = cmd.setupOutputRedirection(outputRedirectType, outputFilename)
 			if err != nil {
@@ -428,42 +383,58 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				cmd.ReturnCode = 1
 				return false
 			}
-			// Don't defer the close, we'll close it explicitly after using it
+			// Don't defer the close - we'll close it explicitly after using it
 		}
 
+		// Handle builtins differently - they need special handling in pipelines
 		if builtin, ok := builtins[cmdName]; ok {
-			// Handle builtin commands
-			var output bytes.Buffer
-			tmpCmd := &Command{
-				Command:    cmd.Command,
-				Stdin:      lastOutput,
-				Stdout:     &output,
-				Stderr:     cmd.Stderr,
-				JobManager: cmd.JobManager, // Pass JobManager to builtins
+			// Create a buffer for capturing output if this is not the last command
+			var output strings.Builder
+			outWriter := cmd.Stdout
+			if i < len(pipeline.Commands)-1 {
+				outWriter = &output
+			} else if outputFile != nil {
+				outWriter = outputFile
 			}
+
+			// Create a temporary command for the builtin
+			singleCmd := &parser.Command{
+				LogicalBlocks: []*parser.LogicalBlock{
+					{
+						FirstPipeline: &parser.Pipeline{
+							Commands: []*parser.SimpleCommand{simpleCmd},
+						},
+					},
+				},
+			}
+
+			tmpCmd := &Command{
+				Command:    singleCmd,
+				Stdin:      lastOutput,
+				Stdout:     outWriter,
+				Stderr:     cmd.Stderr,
+				JobManager: cmd.JobManager,
+			}
+
 			err := builtin(tmpCmd)
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
 				cmd.ReturnCode = 1
+
+				// Close any resources
+				if outputFile != nil {
+					outputFile.Close()
+				}
+
 				return false
 			}
 
-			// Propagate return code from builtin
-			if tmpCmd.ReturnCode != 0 {
-				cmd.ReturnCode = tmpCmd.ReturnCode
-			}
+			// Propagate return code
+			cmd.ReturnCode = tmpCmd.ReturnCode
 
-			lastOutput = &output
-
-			// Write the output of the built-in command
-			if i == len(pipeline.Commands)-1 {
-				if outputFile != nil {
-					io.Copy(outputFile, &output)
-					outputFile.Close()
-					outputFile = nil
-				} else {
-					io.Copy(cmd.Stdout, &output)
-				}
+			// If this is not the last command, set up the output for the next command
+			if i < len(pipeline.Commands)-1 {
+				lastOutput = strings.NewReader(output.String())
 			}
 		} else {
 			// Handle external commands
@@ -474,19 +445,28 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			execCmd.Stdin = lastOutput
 			execCmd.Stderr = cmd.Stderr
 
+			// Set up stdout appropriately based on position in pipeline
 			if i < len(pipeline.Commands)-1 {
+				// Not the last command - connect to the next via pipe
 				r, w := io.Pipe()
 				execCmd.Stdout = w
 				lastOutput = r
 				pipes = append(pipes, w)
 			} else if outputFile != nil {
+				// Last command with redirection
 				execCmd.Stdout = outputFile
 			} else {
+				// Last command, standard output
 				execCmd.Stdout = cmd.Stdout
 			}
 
 			cmds = append(cmds, execCmd)
 		}
+	}
+
+	// If no external commands in the pipeline, we're done
+	if len(cmds) == 0 {
+		return cmd.ReturnCode == 0
 	}
 
 	// Start all commands
@@ -495,14 +475,14 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		if err != nil {
 			fmt.Fprintf(cmd.Stderr, "Error starting command: %v\n", err)
 			cmd.ReturnCode = 1
+
+			// Close any resources
+			if outputFile != nil {
+				outputFile.Close()
+			}
+
 			return false
 		}
-	}
-
-	// Manual background detection: if the last command in a pipeline has the background flag,
-	// treat the entire pipeline as background
-	if len(pipeline.Commands) > 0 && pipeline.Commands[len(pipeline.Commands)-1].Background {
-		pipeline.Background = true
 	}
 
 	// Check if the pipeline should run in the background
@@ -516,27 +496,21 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			},
 		})
 
-		// Add the first command to the job manager to track the pipeline
+		// Add the job to the job manager
 		job := cmd.JobManager.AddJob(pipelineDesc, cmds[0])
 
 		// Print job information
 		fmt.Fprintf(cmd.Stdout, "[%d] %d\n", job.ID, cmds[0].Process.Pid)
 
 		// Launch a goroutine to manage the pipeline execution
-		go func(cmds []*exec.Cmd, pipes []*io.PipeWriter, job *Job) {
+		go func(cmds []*exec.Cmd, pipes []*io.PipeWriter, job *Job, outputFile *os.File) {
 			// Wait for all commands to complete
-			var err error
 			for i, execCmd := range cmds {
-				err = execCmd.Wait()
-				if err != nil {
-					// Don't report error for background processes
-					if i < len(cmds)-1 {
-						pipes[i].Close()
-					}
-				} else {
-					if i < len(cmds)-1 {
-						pipes[i].Close()
-					}
+				execCmd.Wait() // Ignore errors for background processes
+
+				// Close the pipe after the command completes
+				if i < len(cmds)-1 && i < len(pipes) {
+					pipes[i].Close()
 				}
 			}
 
@@ -546,34 +520,48 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			cmd.JobManager.mu.Unlock()
 
 			// Notify when the job completes (next prompt)
-			fmt.Printf("\n[%d]+ Done %s\n", job.ID, job.Command)
+			// Use a synchronized approach to avoid race conditions
+			cmd.JobManager.mu.Lock()
+			notification := fmt.Sprintf("\n[%d]+ Done %s\n", job.ID, job.Command)
+			cmd.JobManager.mu.Unlock()
 
-			// Close any output files
+			// Print notification - should ideally use a synchronized writer
+			fmt.Print(notification)
+
+			// Close the output file if it's still open
 			if outputFile != nil {
 				outputFile.Close()
 			}
-		}(cmds, pipes, job)
+		}(cmds, pipes, job, outputFile)
 
 		cmd.ReturnCode = 0
 		return true
 	}
 
 	// For foreground pipelines, wait for all commands to complete
+	var lastErr error
 	for i, execCmd := range cmds {
 		err := execCmd.Wait()
 		if err != nil {
+			lastErr = err
 			fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
-			cmd.ReturnCode = 1
-			return false
 		}
-		if i < len(cmds)-1 {
+
+		// Close the pipe after the command completes
+		if i < len(cmds)-1 && i < len(pipes) {
 			pipes[i].Close()
 		}
 	}
 
-	// Close any output files
+	// Close the output file if it's still open
 	if outputFile != nil {
 		outputFile.Close()
+	}
+
+	// Set return code based on the last error encountered
+	if lastErr != nil {
+		cmd.ReturnCode = 1
+		return false
 	}
 
 	cmd.ReturnCode = 0
