@@ -48,6 +48,9 @@ func init() {
 
 	// Formatted output
 	builtins["printf"] = printfCommand
+
+	// Positional parameters
+	builtins["shift"] = shiftCommand
 }
 
 func cd(cmd *Command) error {

@@ -597,14 +597,15 @@ These features are essential for gosh to be usable for basic shell scripting and
    - `set -` to reset positional parameters
    - `shopt` for bash-specific options
 
-□ **Positional Parameters**
-   - `$0` - Script/shell name
-   - `$1-$9`, `${10}` - Command-line arguments
-   - `$#` - Number of arguments
-   - `$@` - All arguments as separate words
-   - `$*` - All arguments as single word
-   - `$_` - Last argument of previous command
-   - `shift` command to shift positional parameters
+✅ **Positional Parameters**
+   - `$0` - Script/shell name ✅
+   - `$1-$9`, `${10+}` - Command-line arguments ✅
+   - `$#` - Number of arguments ✅
+   - `$@` - All arguments as separate words ✅
+   - `$*` - All arguments as single word ✅
+   - `shift [n]` command to shift positional parameters ✅
+   - Comprehensive test coverage (30+ test cases) ✅
+   - `$_` - Last argument of previous command (pending)
 
 ✅ **Special Variables**
    - `$$` - Current shell PID ✅
@@ -1066,11 +1067,12 @@ to-table
 - Environment variables (`env`, `export`)
 - Command history with persistence (SQLite-backed)
 - Smart tab completion with argument history tracking
-- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read, printf)
+- Built-in commands (cd, pwd, echo, exit, help, history, env, export, jobs, fg, bg, prompt, pushd, popd, dirs, true, false, test, [, read, printf, shift)
 - Command aliases (`alias`, `unalias`)
 - Conditional testing (`test`, `[` with file, string, and numeric operators)
 - User input (`read` with -p prompt, -s silent, -n count, -t timeout, IFS splitting)
 - Formatted output (`printf` with format specifiers, escape sequences, width/precision)
+- Positional parameters ($0, $1-$9, ${10+}, $#, $@, $*, shift)
 - Special variables ($$, $!, $?, $PPID, $RANDOM, $SECONDS)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands

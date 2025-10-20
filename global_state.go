@@ -1,6 +1,7 @@
 package gosh
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,11 +11,13 @@ import (
 type GlobalState struct {
 	CWD                string
 	PreviousDir        string
-	DirStack           []string // Directory stack for pushd/popd
-	ShellPID           int      // $$ - Current shell PID
-	LastBackgroundPID  int      // $! - Last background process PID
-	LastExitStatus     int      // $? - Exit status of last command
+	DirStack           []string  // Directory stack for pushd/popd
+	ShellPID           int       // $$ - Current shell PID
+	LastBackgroundPID  int       // $! - Last background process PID
+	LastExitStatus     int       // $? - Exit status of last command
 	StartTime          time.Time // For calculating $SECONDS
+	ScriptName         string    // $0 - Script/shell name
+	PositionalParams   []string  // $1, $2, ... - Positional parameters
 	mu                 sync.RWMutex
 }
 
@@ -55,6 +58,8 @@ func GetGlobalState() *GlobalState {
 			LastBackgroundPID: 0,
 			LastExitStatus:    0,
 			StartTime:         time.Now(),
+			ScriptName:        "gosh",         // Default shell name
+			PositionalParams:  []string{},     // No arguments initially
 		}
 
 		// Also ensure environment variables are set
@@ -243,4 +248,73 @@ func (gs *GlobalState) GetSeconds() int {
 	gs.mu.RLock()
 	defer gs.mu.RUnlock()
 	return int(time.Since(gs.StartTime).Seconds())
+}
+
+// SetScriptName sets the script name ($0)
+func (gs *GlobalState) SetScriptName(name string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.ScriptName = name
+}
+
+// GetScriptName returns the script name ($0)
+func (gs *GlobalState) GetScriptName() string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.ScriptName
+}
+
+// SetPositionalParams sets all positional parameters ($1, $2, ...)
+func (gs *GlobalState) SetPositionalParams(params []string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.PositionalParams = make([]string, len(params))
+	copy(gs.PositionalParams, params)
+}
+
+// GetPositionalParams returns all positional parameters
+func (gs *GlobalState) GetPositionalParams() []string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	params := make([]string, len(gs.PositionalParams))
+	copy(params, gs.PositionalParams)
+	return params
+}
+
+// GetPositionalParam returns a specific positional parameter (1-indexed)
+// Returns empty string if index is out of bounds
+func (gs *GlobalState) GetPositionalParam(index int) string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	if index < 1 || index > len(gs.PositionalParams) {
+		return ""
+	}
+	return gs.PositionalParams[index-1]
+}
+
+// GetPositionalParamCount returns the number of positional parameters ($#)
+func (gs *GlobalState) GetPositionalParamCount() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return len(gs.PositionalParams)
+}
+
+// ShiftPositionalParams shifts positional parameters left by n positions
+// Returns error if n is negative or larger than the number of parameters
+func (gs *GlobalState) ShiftPositionalParams(n int) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if n < 0 {
+		return fmt.Errorf("shift: invalid count: %d", n)
+	}
+
+	if n > len(gs.PositionalParams) {
+		// Bash allows shifting more than available, just clears all
+		gs.PositionalParams = []string{}
+		return nil
+	}
+
+	gs.PositionalParams = gs.PositionalParams[n:]
+	return nil
 }

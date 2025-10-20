@@ -9,7 +9,7 @@ import (
 )
 
 // ExpandSpecialVariables expands shell special variables in the given string
-// Supports: $$, $!, $?, $PPID, $RANDOM, $SECONDS, and regular environment variables
+// Supports: $$, $!, $?, $0-$9, ${10+}, $#, $@, $*, $PPID, $RANDOM, $SECONDS, and regular environment variables
 func ExpandSpecialVariables(s string) string {
 	state := GetGlobalState()
 
@@ -24,6 +24,25 @@ func ExpandSpecialVariables(s string) string {
 
 	// $? - Exit status of last command
 	replacements["$?"] = strconv.Itoa(state.GetLastExitStatus())
+
+	// $# - Number of positional parameters
+	replacements["$#"] = strconv.Itoa(state.GetPositionalParamCount())
+
+	// $0 - Script name
+	replacements["$0"] = state.GetScriptName()
+
+	// $1-$9 - Positional parameters
+	for i := 1; i <= 9; i++ {
+		replacements["$"+strconv.Itoa(i)] = state.GetPositionalParam(i)
+	}
+
+	// $@ - All positional parameters as separate words
+	// Note: This is a simplified version. In a full shell, $@ behaves differently when quoted
+	params := state.GetPositionalParams()
+	replacements["$@"] = strings.Join(params, " ")
+
+	// $* - All positional parameters as single word (space-separated)
+	replacements["$*"] = strings.Join(params, " ")
 
 	// $PPID - Parent process PID
 	replacements["$PPID"] = strconv.Itoa(os.Getppid())
@@ -41,10 +60,19 @@ func ExpandSpecialVariables(s string) string {
 	}
 
 	// Expand environment variables: $VAR and ${VAR}
-	// Handle ${VAR} first
-	braceRe := regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
+	// Also handle ${10}, ${11}, etc. for positional parameters beyond $9
+	braceRe := regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)\}`)
 	result = braceRe.ReplaceAllStringFunc(result, func(match string) string {
 		varName := match[2 : len(match)-1] // Remove ${ and }
+
+		// Check if it's a numeric positional parameter
+		if num, err := strconv.Atoi(varName); err == nil {
+			if num == 0 {
+				return state.GetScriptName()
+			}
+			return state.GetPositionalParam(num)
+		}
+
 		return os.Getenv(varName)
 	})
 
