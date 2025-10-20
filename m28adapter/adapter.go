@@ -59,12 +59,33 @@ func (i *Interpreter) ExecuteFile(filename string) error {
 // IsLispExpression checks if a given string is a Lisp expression
 func IsLispExpression(cmdString string) bool {
 	trimmed := strings.TrimSpace(cmdString)
-	return strings.HasPrefix(trimmed, "(") && strings.HasSuffix(trimmed, ")") &&
-		(strings.Contains(trimmed, " ") || // Must contain a space for a proper Lisp expr
-			strings.HasPrefix(trimmed, "(+") || // Or be a specific operation like (+
-			strings.HasPrefix(trimmed, "(-") ||
-			strings.HasPrefix(trimmed, "(*") ||
-			strings.HasPrefix(trimmed, "(/"))
+
+	// Must start with ( and end with )
+	if !strings.HasPrefix(trimmed, "(") || !strings.HasSuffix(trimmed, ")") {
+		return false
+	}
+
+	// Shell subshells often have a space right after the opening paren
+	// Example: "( cmd )" vs Lisp: "(cmd args)"
+	if len(trimmed) > 1 && trimmed[1] == ' ' {
+		return false
+	}
+
+	// Check for shell-specific syntax that wouldn't appear in Lisp
+	// These are strong indicators of shell constructs
+	shellIndicators := []string{";", " | ", "&&", "||", ">", "<", "&"}
+	for _, indicator := range shellIndicators {
+		if strings.Contains(trimmed, indicator) {
+			return false
+		}
+	}
+
+	// Now check if it looks like a Lisp expression
+	return strings.Contains(trimmed, " ") || // Must contain a space for a proper Lisp expr
+		strings.HasPrefix(trimmed, "(+") || // Or be a specific operation like (+
+		strings.HasPrefix(trimmed, "(-") ||
+		strings.HasPrefix(trimmed, "(*") ||
+		strings.HasPrefix(trimmed, "(/")
 }
 
 // StringValue converts a value to its string representation

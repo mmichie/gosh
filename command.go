@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"gosh/m28adapter"
@@ -29,6 +30,25 @@ type Command struct {
 }
 
 var m28Interpreter *m28adapter.Interpreter
+
+// getExitCode extracts the actual exit code from an error
+// Returns the exit code, or 1 if it cannot be determined
+func getExitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	// Check if it's an ExitError (command exited with non-zero status)
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		// Get the exit code from the process state
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+			return status.ExitStatus()
+		}
+	}
+
+	// For other errors (command not found, permission denied, etc.), return 1
+	return 1
+}
 
 func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// Store here-document data for later processing
@@ -332,11 +352,12 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			} else {
 				// Run the command in the foreground (normal execution)
 				err := execCmd.Run()
-				if err != nil {
-					fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
-					cmd.ReturnCode = 1
-				} else {
-					cmd.ReturnCode = 0
+				cmd.ReturnCode = getExitCode(err)
+				if err != nil && cmd.ReturnCode != 0 {
+					// Only print error message for actual errors, not just non-zero exits
+					if _, ok := err.(*exec.ExitError); !ok {
+						fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
+					}
 				}
 			}
 			handled = true
@@ -581,12 +602,17 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	}
 
 	// For foreground pipelines, wait for all commands to complete
-	var lastErr error
+	// Track exit codes for all commands
+	exitCodes := make([]int, len(cmds))
 	for i, execCmd := range cmds {
 		err := execCmd.Wait()
-		if err != nil {
-			lastErr = err
-			fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
+		exitCodes[i] = getExitCode(err)
+
+		// Only print error messages for actual execution errors, not normal non-zero exits
+		if err != nil && exitCodes[i] != 0 {
+			if _, ok := err.(*exec.ExitError); !ok {
+				fmt.Fprintf(cmd.Stderr, "Error executing command: %v\n", err)
+			}
 		}
 
 		// Close the pipe after the command completes
@@ -600,14 +626,15 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		outputFile.Close()
 	}
 
-	// Set return code based on the last error encountered
-	if lastErr != nil {
-		cmd.ReturnCode = 1
-		return false
+	// Set return code to the exit code of the last command in the pipeline
+	// This is standard bash behavior (unless pipefail is set, which we haven't implemented)
+	if len(exitCodes) > 0 {
+		cmd.ReturnCode = exitCodes[len(exitCodes)-1]
+	} else {
+		cmd.ReturnCode = 0
 	}
 
-	cmd.ReturnCode = 0
-	return true
+	return cmd.ReturnCode == 0
 }
 
 // findBalancedParens finds all balanced parentheses expressions in a string

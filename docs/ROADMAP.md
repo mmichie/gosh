@@ -1077,6 +1077,7 @@ to-table
 - Special variables ($$, $!, $?, $PPID, $RANDOM, $SECONDS)
 - Subshells `( commands )` with environment isolation
 - Command grouping `{ commands; }` without subshell
+- Proper exit code handling (actual exit codes from commands, pipeline exit codes)
 - M28 Lisp integration with embedded expressions
 - Command separators (`;`) for multiple commands
 - Background jobs management (`&`, `jobs`, `fg`, `bg`)
