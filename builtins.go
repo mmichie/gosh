@@ -59,6 +59,13 @@ func init() {
 	// Shell options
 	builtins["set"] = setCommand
 	builtins["shopt"] = shoptCommand
+
+	// Essential builtins
+	builtins[":"] = colonCommand    // Null command
+	builtins["unset"] = unsetCommand
+	builtins["source"] = sourceCommand
+	builtins["."] = sourceCommand   // . is an alias for source
+	builtins["eval"] = evalCommand
 }
 
 // Helper function to extract Parts from a CommandElement
@@ -266,12 +273,15 @@ func echo(cmd *Command) error {
 
 func help(cmd *Command) error {
 	helpText := `Built-in commands:
+  :           - Null command (always succeeds)
+  .           - Source a script file (alias for source)
   alias       - Create command aliases
   bg          - Resume job in background
   cd          - Change directory (supports CDPATH)
   dirs        - Display directory stack (options: -v, -p, -c)
   echo        - Display text
   env         - Display environment variables
+  eval        - Evaluate arguments as a shell command
   exit        - Exit the shell
   export      - Set environment variables
   false       - Return failure status
@@ -286,8 +296,10 @@ func help(cmd *Command) error {
   pwd         - Print working directory
   set         - Set shell options and positional parameters
   shopt       - Set bash-specific shell options
+  source      - Source a script file
   true        - Return success status
   unalias     - Remove command aliases
+  unset       - Remove environment variables
 
 Shell Options (set):
   set -e      - Exit immediately on command failure (errexit)
