@@ -11,36 +11,18 @@ import (
 
 // Command substitution patterns
 var (
-	// Match commands in $(...) format - greedy to ensure proper nesting
-	dollarParenPattern = regexp.MustCompile(`\$\((.*?)\)`)
-
 	// Match commands in backtick format - backticks cannot be nested in shell
 	backtickPattern = regexp.MustCompile("`([^`]*)`")
-
-	// Pattern to detect unmatched $(
-	unmatchedDollarOpenPattern = regexp.MustCompile(`\$\([^)]*$`)
-	// Disabling unmatched backtick detection as it causes false positives
-	// unmatchedBacktickPattern   = regexp.MustCompile("`[^`]*$")
 )
 
 // PerformCommandSubstitution processes a command string for command substitutions
 // It supports both $(...) and backtick ` ` syntax
 // Returns the processed command string with substitutions applied
 func PerformCommandSubstitution(cmdString string, jobManager *JobManager) (string, error) {
-	// Check for unmatched patterns first
-	if unmatchedDollarOpenPattern.MatchString(cmdString) {
-		return cmdString, fmt.Errorf("unmatched $(")
-	}
-
-	// Disabled: unmatched backtick detection causing false positives
-	// if unmatchedBacktickPattern.MatchString(cmdString) {
-	//	return cmdString, fmt.Errorf("unmatched backtick")
-	// }
-
 	var err error
 
-	// First handle $(...) substitutions
-	cmdString, err = substituteCommandsInPattern(cmdString, dollarParenPattern, jobManager)
+	// First handle $(...) substitutions using balanced parentheses matching
+	cmdString, err = substituteDollarParenCommands(cmdString, jobManager)
 	if err != nil {
 		return cmdString, err
 	}
@@ -49,6 +31,58 @@ func PerformCommandSubstitution(cmdString string, jobManager *JobManager) (strin
 	cmdString, err = substituteCommandsInPattern(cmdString, backtickPattern, jobManager)
 	if err != nil {
 		return cmdString, err
+	}
+
+	return cmdString, nil
+}
+
+// substituteDollarParenCommands handles $(...) command substitutions with proper nesting
+func substituteDollarParenCommands(cmdString string, jobManager *JobManager) (string, error) {
+	for {
+		// Find the first $( in the string
+		dollarParenIdx := strings.Index(cmdString, "$(")
+		if dollarParenIdx == -1 {
+			break // No more substitutions
+		}
+
+		// Find the matching closing parenthesis
+		// Start after "$(" which is 2 characters
+		depth := 1 // We start with one open paren from $(
+		closingIdx := -1
+		for i := dollarParenIdx + 2; i < len(cmdString); i++ {
+			ch := cmdString[i]
+			if ch == '(' {
+				depth++
+			} else if ch == ')' {
+				depth--
+				if depth == 0 {
+					closingIdx = i
+					break
+				}
+			}
+		}
+
+		if closingIdx == -1 {
+			return cmdString, fmt.Errorf("unmatched $(")
+		}
+
+		// Extract the inner command (between $( and ))
+		innerCmd := cmdString[dollarParenIdx+2 : closingIdx]
+
+		// Recursively process nested command substitutions first
+		innerCmd, err := PerformCommandSubstitution(innerCmd, jobManager)
+		if err != nil {
+			return cmdString, err
+		}
+
+		// Execute the inner command and capture its output
+		output, err := executeSubstitutedCommand(innerCmd, jobManager)
+		if err != nil {
+			return cmdString, fmt.Errorf("error in command substitution '%s': %v", innerCmd, err)
+		}
+
+		// Replace the command substitution with the output
+		cmdString = cmdString[:dollarParenIdx] + output + cmdString[closingIdx+1:]
 	}
 
 	return cmdString, nil

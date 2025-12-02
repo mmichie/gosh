@@ -100,13 +100,13 @@ func TestSemicolonStructure(t *testing.T) {
 
 	// Verify first command is "echo hello"
 	firstCmd := result.LogicalBlocks[0].FirstPipeline.Commands[0]
-	if len(firstCmd.Parts) != 2 || firstCmd.Parts[0] != "echo" || firstCmd.Parts[1] != "hello" {
-		t.Errorf("First command doesn't match expected structure: %v", firstCmd.Parts)
+	if firstCmd.Simple == nil || len(firstCmd.Simple.Parts) != 2 || firstCmd.Simple.Parts[0] != "echo" || firstCmd.Simple.Parts[1] != "hello" {
+		t.Errorf("First command doesn't match expected structure: %v", firstCmd.Simple)
 	}
 
 	// Verify second command is "echo world"
 	secondCmd := result.LogicalBlocks[1].FirstPipeline.Commands[0]
-	if len(secondCmd.Parts) != 2 || secondCmd.Parts[0] != "echo" || secondCmd.Parts[1] != "world" {
-		t.Errorf("Second command doesn't match expected structure: %v", secondCmd.Parts)
+	if secondCmd.Simple == nil || len(secondCmd.Simple.Parts) != 2 || secondCmd.Simple.Parts[0] != "echo" || secondCmd.Simple.Parts[1] != "world" {
+		t.Errorf("Second command doesn't match expected structure: %v", secondCmd.Simple)
 	}
 }

@@ -29,10 +29,14 @@ func main() {
 	flag.BoolVar(&decayHistoryFlag, "decay-history", false, "Apply decay factor to argument history")
 	flag.Parse()
 
-	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
-
 	// Get remaining arguments after flags
 	args := flag.Args()
+
+	// Only log session start in interactive mode (no -c flag and no script file)
+	isInteractive := cmdFlag == "" && len(args) == 0
+	if isInteractive {
+		log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
+	}
 
 	// If -c flag is provided, execute the command and exit
 	if cmdFlag != "" {
@@ -248,7 +252,14 @@ func executeScript(scriptPath string, args []string) {
 	// Set up positional parameters
 	// args[0] is the script name, args[1:] are the script arguments
 	gs := gosh.GetGlobalState()
-	gs.SetPositionalParams(args)
+	gs.SetScriptName(scriptPath)
+	// For positional params, args[0] should be script path, and args[1:] should be $1, $2, etc.
+	// We need to set params so that $1 = first arg, $2 = second arg, etc.
+	if len(args) > 1 {
+		gs.SetPositionalParams(args[1:])
+	} else {
+		gs.SetPositionalParams([]string{})
+	}
 
 	// Create job manager for the script
 	jobManager := gosh.NewJobManager()

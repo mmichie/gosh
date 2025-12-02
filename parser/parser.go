@@ -3,6 +3,7 @@ package parser
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/participle/v2"
@@ -99,6 +100,10 @@ func Parse(input string) (*Command, error) {
 			return nil, fmt.Errorf("no valid commands found")
 		}
 	}
+
+	// Handle semicolons before closing braces in command groups: { cmd; } -> { cmd }
+	// This is bash-compatible syntax where semicolon terminates command before }
+	cleanInput = preprocessCommandGroups(cleanInput)
 
 	// Parse the cleaned input
 	command, err := parser.ParseString("", cleanInput)
@@ -250,4 +255,14 @@ func SplitCommand(cmdString string) []string {
 	// Simple tokenization - this doesn't handle quotes or escapes properly
 	// but is good enough for extracting the base command name
 	return strings.Fields(cmdString)
+}
+
+// preprocessCommandGroups handles bash-style command groups by removing
+// trailing semicolons before closing braces: { cmd; } -> { cmd }
+// This allows the parser to handle bash-compatible syntax.
+func preprocessCommandGroups(input string) string {
+	// Pattern to match semicolons followed by optional whitespace and closing brace
+	// Handles cases like "cmd; }", "cmd;}", "cmd ;}", "cmd ; }"
+	re := regexp.MustCompile(`;\s*\}`)
+	return re.ReplaceAllString(input, " }")
 }

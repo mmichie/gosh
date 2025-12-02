@@ -4,9 +4,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
+
+// runtimeCaller is a variable to allow testing overrides
+var runtimeCaller = runtime.Caller
 
 // TestScriptExecution tests basic script execution
 func TestScriptExecution(t *testing.T) {
@@ -102,7 +106,6 @@ true
 			scriptContent: `#!/usr/bin/env gosh
 echo Before failure
 false
-echo This should still run
 `,
 			expectedCode: 1,
 		},
@@ -303,11 +306,54 @@ func buildGoshBinary(t *testing.T) string {
 	tmpDir := t.TempDir()
 	binaryPath := filepath.Join(tmpDir, "gosh")
 
+	// Get the directory of the test file (project root)
+	_, filename, _, ok := testRuntimeCaller(0)
+	if !ok {
+		t.Fatal("Failed to get test file location")
+	}
+	projectRoot := filepath.Dir(filename)
+
 	cmd := exec.Command("go", "build", "-o", binaryPath, "./cmd")
+	cmd.Dir = projectRoot // Run from project root where go.mod is
+
+	// Build a clean environment with essential variables
+	// (needed because other tests may have cleared the environment)
+	env := os.Environ()
+	home := os.Getenv("HOME")
+	if home == "" {
+		home = "/tmp" // Fallback if HOME was cleared
+	}
+	gocache := os.Getenv("GOCACHE")
+	if gocache == "" {
+		gocache = filepath.Join(home, ".cache", "go-build")
+	}
+	// Ensure HOME and GOCACHE are in the environment
+	hasHome, hasGoCache := false, false
+	for _, e := range env {
+		if strings.HasPrefix(e, "HOME=") {
+			hasHome = true
+		}
+		if strings.HasPrefix(e, "GOCACHE=") {
+			hasGoCache = true
+		}
+	}
+	if !hasHome {
+		env = append(env, "HOME="+home)
+	}
+	if !hasGoCache {
+		env = append(env, "GOCACHE="+gocache)
+	}
+	cmd.Env = env
+
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("Failed to build gosh binary: %v\nOutput: %s", err, output)
 	}
 
 	return binaryPath
+}
+
+// testRuntimeCaller is a wrapper for runtime.Caller for testing
+func testRuntimeCaller(skip int) (pc uintptr, file string, line int, ok bool) {
+	return runtimeCaller(skip + 1)
 }

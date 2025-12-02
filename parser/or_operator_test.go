@@ -61,16 +61,16 @@ func TestOrOperatorStructure(t *testing.T) {
 		LogicalBlocks: []*LogicalBlock{
 			{
 				FirstPipeline: &Pipeline{
-					Commands: []*SimpleCommand{
-						{Parts: []string{"false"}},
+					Commands: []*CommandElement{
+						{Simple: &SimpleCommand{Parts: []string{"false"}}},
 					},
 				},
 				RestPipelines: []*OpPipeline{
 					{
 						Operator: "||",
 						Pipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"echo", "'failed'"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"echo", "'failed'"}}},
 							},
 						},
 					},
@@ -94,8 +94,9 @@ func TestOrOperatorStructure(t *testing.T) {
 
 	// Check first pipeline has the correct "false" command
 	if len(block.FirstPipeline.Commands) != 1 ||
-		len(block.FirstPipeline.Commands[0].Parts) != 1 ||
-		block.FirstPipeline.Commands[0].Parts[0] != "false" {
+		block.FirstPipeline.Commands[0].Simple == nil ||
+		len(block.FirstPipeline.Commands[0].Simple.Parts) != 1 ||
+		block.FirstPipeline.Commands[0].Simple.Parts[0] != "false" {
 		t.Errorf("FirstPipeline doesn't match expected structure")
 	}
 
@@ -108,8 +109,9 @@ func TestOrOperatorStructure(t *testing.T) {
 	// Check that the second pipeline has the echo command
 	echoPipeline := block.RestPipelines[0].Pipeline
 	if len(echoPipeline.Commands) != 1 ||
-		len(echoPipeline.Commands[0].Parts) != 2 ||
-		echoPipeline.Commands[0].Parts[0] != "echo" {
+		echoPipeline.Commands[0].Simple == nil ||
+		len(echoPipeline.Commands[0].Simple.Parts) != 2 ||
+		echoPipeline.Commands[0].Simple.Parts[0] != "echo" {
 		t.Errorf("Echo command in OR operator pipeline doesn't match expected structure")
 	}
 }

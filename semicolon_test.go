@@ -54,7 +54,12 @@ func TestSemicolonOperator(t *testing.T) {
 
 	// Save the current directory to restore it later
 	originalDir, _ := os.Getwd()
-	defer os.Chdir(originalDir)
+	gs := GetGlobalState()
+	originalGsCWD := gs.GetCWD()
+	defer func() {
+		os.Chdir(originalDir)
+		gs.UpdateCWD(originalGsCWD)
+	}()
 
 	// Change to the temp directory for the test
 	err = os.Chdir(tempDir)
@@ -63,7 +68,6 @@ func TestSemicolonOperator(t *testing.T) {
 	}
 
 	// Update global state to match current directory
-	gs := GetGlobalState()
 	gs.UpdateCWD(tempDir)
 
 	for _, tt := range tests {

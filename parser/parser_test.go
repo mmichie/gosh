@@ -18,8 +18,8 @@ func TestParseValidInputs(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"ls", "-l"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"ls", "-l"}}},
 							},
 						},
 					},
@@ -33,9 +33,9 @@ func TestParseValidInputs(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"cat", "file.txt"}},
-								{Parts: []string{"grep", "pattern"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"cat", "file.txt"}}},
+								{Simple: &SimpleCommand{Parts: []string{"grep", "pattern"}}},
 							},
 						},
 					},
@@ -49,16 +49,16 @@ func TestParseValidInputs(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"mkdir", "test"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"mkdir", "test"}}},
 							},
 						},
 						RestPipelines: []*OpPipeline{
 							{
 								Operator: "&&",
 								Pipeline: &Pipeline{
-									Commands: []*SimpleCommand{
-										{Parts: []string{"cd", "test"}},
+									Commands: []*CommandElement{
+										{Simple: &SimpleCommand{Parts: []string{"cd", "test"}}},
 									},
 								},
 							},
@@ -74,13 +74,13 @@ func TestParseValidInputs(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{
 									Parts: []string{"echo", "'Hello'"},
 									Redirects: []*Redirect{
 										{Type: ">", File: "output.txt"},
 									},
-								},
+								}},
 							},
 						},
 					},
@@ -220,8 +220,8 @@ func TestFormatCommandNew(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"ls", "-l"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"ls", "-l"}}},
 							},
 						},
 					},
@@ -235,9 +235,9 @@ func TestFormatCommandNew(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"cat", "file.txt"}},
-								{Parts: []string{"grep", "pattern"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"cat", "file.txt"}}},
+								{Simple: &SimpleCommand{Parts: []string{"grep", "pattern"}}},
 							},
 						},
 					},
@@ -251,16 +251,16 @@ func TestFormatCommandNew(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"mkdir", "test"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"mkdir", "test"}}},
 							},
 						},
 						RestPipelines: []*OpPipeline{
 							{
 								Operator: "&&",
 								Pipeline: &Pipeline{
-									Commands: []*SimpleCommand{
-										{Parts: []string{"cd", "test"}},
+									Commands: []*CommandElement{
+										{Simple: &SimpleCommand{Parts: []string{"cd", "test"}}},
 									},
 								},
 							},
@@ -276,16 +276,16 @@ func TestFormatCommandNew(t *testing.T) {
 				LogicalBlocks: []*LogicalBlock{
 					{
 						FirstPipeline: &Pipeline{
-							Commands: []*SimpleCommand{
-								{Parts: []string{"false"}},
+							Commands: []*CommandElement{
+								{Simple: &SimpleCommand{Parts: []string{"false"}}},
 							},
 						},
 						RestPipelines: []*OpPipeline{
 							{
 								Operator: "||",
 								Pipeline: &Pipeline{
-									Commands: []*SimpleCommand{
-										{Parts: []string{"echo", "failed"}},
+									Commands: []*CommandElement{
+										{Simple: &SimpleCommand{Parts: []string{"echo", "failed"}}},
 									},
 								},
 							},

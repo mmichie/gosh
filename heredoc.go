@@ -115,9 +115,20 @@ func PreprocessHereDoc(input string) (string, HereDocMap, error) {
 			delimiter = delimiter[1 : len(delimiter)-1]
 		}
 
-		// Look for the here-doc content (everything from end of << to the delimiter on its own line)
+		// Look for the here-doc content (everything from the NEXT line to the delimiter on its own line)
 		endOfHereDocTag := matches[1]
+
+		// Find the end of the current line to preserve anything after the << DELIMITER
+		// (like pipe operators or && operators)
+		restOfLine := ""
 		contentStart := endOfHereDocTag
+		newlineIdx := strings.Index(input[endOfHereDocTag:], "\n")
+		if newlineIdx >= 0 {
+			// Capture the rest of the current line (e.g., " | grep Hello")
+			restOfLine = input[endOfHereDocTag : endOfHereDocTag+newlineIdx]
+			// Content starts after the newline
+			contentStart = endOfHereDocTag + newlineIdx + 1
+		}
 
 		// Find the end delimiter (must be on a line by itself, optionally with tabs if dash specified)
 		var endPattern string
@@ -153,7 +164,9 @@ func PreprocessHereDoc(input string) (string, HereDocMap, error) {
 
 		// Replace the original here-doc with a placeholder
 		// Format: < [GUID] (appears like a file redirection to the parser)
-		placeholder := "< " + hereDocID
+		basePlaceholder := "< " + hereDocID
+		// Include the rest of the line after the << DELIMITER (e.g., " | grep Hello")
+		fullPlaceholder := basePlaceholder + restOfLine
 
 		// Replace in the original input
 		// We need to replace the full here-doc (delimiter line through content to end delimiter)
@@ -165,10 +178,11 @@ func PreprocessHereDoc(input string) (string, HereDocMap, error) {
 		if endPos > len(input) {
 			endPos = len(input)
 		}
-		input = input[:matches[0]] + placeholder + input[endPos:]
+		input = input[:matches[0]] + fullPlaceholder + input[endPos:]
 
-		// Update lastIndex to avoid re-matching the same here-doc
-		lastIndex = matches[0] + len(placeholder)
+		// Update lastIndex to skip only past the base placeholder
+		// so that any heredocs in restOfLine can still be found
+		lastIndex = matches[0] + len(basePlaceholder)
 	}
 
 	return input, hereDocs, nil
@@ -188,9 +202,9 @@ func ProcessHereDoc(heredoc *HereDoc) io.Reader {
 		// Process lines
 		var processedLines []string
 		for _, line := range lines {
-			// If StripTabs is true, strip leading tabs
-			if heredoc.StripTabs {
-				line = strings.TrimLeft(line, "\t")
+			// If StripTabs is true, strip only ONE leading tab (bash <<- behavior)
+			if heredoc.StripTabs && strings.HasPrefix(line, "\t") {
+				line = line[1:]
 			}
 			processedLines = append(processedLines, line)
 		}

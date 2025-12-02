@@ -1,6 +1,7 @@
 package gosh
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -59,8 +60,21 @@ func TestSubshellParsing(t *testing.T) {
 
 func TestSubshellIsolation(t *testing.T) {
 	state := GetGlobalState()
-	origCWD := state.GetCWD()
-	defer state.UpdateCWD(origCWD)
+
+	// Create a fresh temp directory as our baseline to avoid test pollution
+	baseDir := t.TempDir()
+	if err := os.Chdir(baseDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+	state.UpdateCWD(baseDir)
+
+	// Restore original state after test
+	origCWD, _ := os.Getwd()
+	origStateCWD := state.GetCWD()
+	defer func() {
+		os.Chdir(origCWD)
+		state.UpdateCWD(origStateCWD)
+	}()
 
 	tests := []struct {
 		name            string
@@ -84,8 +98,9 @@ func TestSubshellIsolation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Reset to original CWD before each test
-			state.UpdateCWD(origCWD)
+			// Reset to base directory before each test (both global state and process)
+			state.UpdateCWD(baseDir)
+			os.Chdir(baseDir)
 
 			cmd, err := NewCommand(tt.input, NewJobManager())
 			if err != nil {
@@ -98,11 +113,11 @@ func TestSubshellIsolation(t *testing.T) {
 			cmd.Run()
 
 			currentCWD := state.GetCWD()
-			cwdChanged := currentCWD != origCWD
+			cwdChanged := currentCWD != baseDir
 
 			if cwdChanged != tt.wantCWDChanged {
-				t.Errorf("%s: CWD changed = %v, want %v (orig: %s, current: %s)",
-					tt.description, cwdChanged, tt.wantCWDChanged, origCWD, currentCWD)
+				t.Errorf("%s: CWD changed = %v, want %v (base: %s, current: %s)",
+					tt.description, cwdChanged, tt.wantCWDChanged, baseDir, currentCWD)
 			}
 		})
 	}

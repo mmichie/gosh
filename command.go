@@ -279,6 +279,15 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)
 
+		// Update simpleCmd.Parts with expanded args so builtins see expanded values
+		// Keep the command name and replace the rest with expanded args
+		if len(simpleCmd.Parts) > 0 {
+			expandedParts := make([]string, 1+len(args))
+			expandedParts[0] = simpleCmd.Parts[0] // Keep command name
+			copy(expandedParts[1:], args)
+			simpleCmd.Parts = expandedParts
+		}
+
 		// Handle input redirection
 		if inputRedirectType == "<" && inputFilename != "" {
 			var err error
@@ -523,6 +532,15 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)
+
+		// Update simpleCmd.Parts with expanded args so builtins see expanded values
+		// Keep the command name and replace the rest with expanded args
+		if len(simpleCmd.Parts) > 0 {
+			expandedParts := make([]string, 1+len(args))
+			expandedParts[0] = simpleCmd.Parts[0] // Keep command name
+			copy(expandedParts[1:], args)
+			simpleCmd.Parts = expandedParts
+		}
 
 		// Handle input redirection for the first command
 		if i == 0 && inputRedirectType == "<" && inputFilename != "" {
@@ -963,6 +981,8 @@ func (cmd *Command) executeSubshell(subshell *parser.Subshell, input io.Reader) 
 
 	// Restore environment state (subshell changes don't affect parent)
 	state.UpdateCWD(origCWD)
+	// Also restore the actual process directory
+	os.Chdir(origCWD)
 
 	// Restore environment variables
 	// Clear current env

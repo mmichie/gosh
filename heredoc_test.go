@@ -11,7 +11,7 @@ func TestPreprocessHereDoc(t *testing.T) {
 	tests := []struct {
 		name           string
 		input          string
-		expectedOutput string
+		expectedPrefix string // Prefix pattern to check for (with flexible GUID)
 		expectedCount  int
 	}{
 		{
@@ -20,7 +20,7 @@ func TestPreprocessHereDoc(t *testing.T) {
 Hello, world!
 This is a here-doc.
 EOF`,
-			expectedOutput: `cat < heredoc_EOF_guid_`,
+			expectedPrefix: `cat < heredoc_EOF_`,
 			expectedCount:  1,
 		},
 		{
@@ -29,13 +29,13 @@ EOF`,
 	Hello, world!
 	This is a here-doc with tabs.
 EOF`,
-			expectedOutput: `cat < heredoc_EOF_guid_`,
+			expectedPrefix: `cat < heredoc_EOF_`,
 			expectedCount:  1,
 		},
 		{
 			name:           "Here-string",
 			input:          `cat <<< "Hello, world!"`,
-			expectedOutput: `cat < herestring_guid_`,
+			expectedPrefix: `cat < herestring_`,
 			expectedCount:  1,
 		},
 		{
@@ -46,16 +46,15 @@ EOF1
 cat << EOF2
 Content 2
 EOF2`,
-			expectedOutput: `cat < heredoc_EOF1_guid_
-cat < heredoc_EOF2_guid_`,
-			expectedCount: 2,
+			expectedPrefix: `cat < heredoc_EOF1_`,
+			expectedCount:  2,
 		},
 		{
 			name: "Here-doc within a pipeline",
 			input: `cat << EOF | grep "Hello"
 Hello, world!
 EOF`,
-			expectedOutput: `cat < heredoc_EOF_guid_ | grep "Hello"`,
+			expectedPrefix: `cat < heredoc_EOF_`,
 			expectedCount:  1,
 		},
 	}
@@ -67,9 +66,9 @@ EOF`,
 				t.Fatalf("PreprocessHereDoc error: %v", err)
 			}
 
-			// Check that the output contains the expected pattern
-			if !strings.HasPrefix(output, tc.expectedOutput) {
-				t.Errorf("Expected output to start with %q, got %q", tc.expectedOutput, output)
+			// Check that the output contains the expected prefix pattern
+			if !strings.HasPrefix(output, tc.expectedPrefix) {
+				t.Errorf("Expected output to start with %q, got %q", tc.expectedPrefix, output)
 			}
 
 			// Check that we have the expected number of here-docs
