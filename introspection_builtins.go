@@ -30,7 +30,7 @@ func typeCommand(cmd *Command) error {
 		}
 
 		// Check if it's an alias
-		if aliasCmd := GetAlias(name); aliasCmd != "" {
+		if aliasCmd, exists := GetAlias(name); exists {
 			fmt.Fprintf(cmd.Stdout, "%s is aliased to `%s'\n", name, aliasCmd)
 			found = true
 			continue
@@ -138,7 +138,7 @@ func commandCommand(cmd *Command) error {
 			}
 
 			// Check if it's an alias (command -v shows aliases too)
-			if aliasCmd := GetAlias(name); aliasCmd != "" {
+			if aliasCmd, exists := GetAlias(name); exists {
 				fmt.Fprintf(cmd.Stdout, "alias %s='%s'\n", name, aliasCmd)
 				found = true
 				continue

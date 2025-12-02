@@ -31,9 +31,20 @@ func main() {
 
 	log.Printf("Session started at %s by user %d (%s)", time.Now(), os.Geteuid(), os.Getenv("USER"))
 
+	// Get remaining arguments after flags
+	args := flag.Args()
+
 	// If -c flag is provided, execute the command and exit
 	if cmdFlag != "" {
 		executeCommand(cmdFlag)
+		return
+	}
+
+	// If a script file is provided, execute it and exit
+	if len(args) > 0 {
+		scriptFile := args[0]
+		scriptArgs := args // args[0] will be $0, args[1:] will be $1, $2, etc.
+		executeScript(scriptFile, scriptArgs)
 		return
 	}
 
@@ -213,4 +224,59 @@ func executeCommand(cmd string) {
 			argHistory.Close()
 		}
 	}
+}
+
+// executeScript executes a shell script from a file
+func executeScript(scriptPath string, args []string) {
+	// Read the script file
+	data, err := os.ReadFile(scriptPath)
+	if err != nil {
+		log.Fatalf("Error reading script file %s: %v", scriptPath, err)
+	}
+
+	content := string(data)
+	lines := strings.Split(content, "\n")
+
+	// Handle shebang line
+	if len(lines) > 0 && strings.HasPrefix(lines[0], "#!") {
+		// Skip the shebang line
+		lines = lines[1:]
+	}
+
+	// Set up positional parameters
+	// args[0] is the script name, args[1:] are the script arguments
+	gs := gosh.GetGlobalState()
+	gs.SetPositionalParams(args)
+
+	// Create job manager for the script
+	jobManager := gosh.NewJobManager()
+
+	// Execute each line of the script
+	exitCode := 0
+	for lineNum, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		command, err := gosh.NewCommand(line, jobManager)
+		if err != nil {
+			log.Printf("Error at line %d: %v", lineNum+1, err)
+			exitCode = 1
+			break
+		}
+
+		command.Stdin = os.Stdin
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		command.Run()
+
+		// Track last exit code
+		exitCode = command.ReturnCode
+	}
+
+	// Exit with the last command's exit code
+	os.Exit(exitCode)
 }
