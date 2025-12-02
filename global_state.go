@@ -23,14 +23,15 @@ type ShellOptions struct {
 type GlobalState struct {
 	CWD                string
 	PreviousDir        string
-	DirStack           []string      // Directory stack for pushd/popd
-	ShellPID           int           // $$ - Current shell PID
-	LastBackgroundPID  int           // $! - Last background process PID
-	LastExitStatus     int           // $? - Exit status of last command
-	StartTime          time.Time     // For calculating $SECONDS
-	ScriptName         string        // $0 - Script/shell name
-	PositionalParams   []string      // $1, $2, ... - Positional parameters
-	Options            ShellOptions  // Shell options (set -e, -u, etc.)
+	DirStack           []string         // Directory stack for pushd/popd
+	ShellPID           int              // $$ - Current shell PID
+	LastBackgroundPID  int              // $! - Last background process PID
+	LastExitStatus     int              // $? - Exit status of last command
+	StartTime          time.Time        // For calculating $SECONDS
+	ScriptName         string           // $0 - Script/shell name
+	PositionalParams   []string         // $1, $2, ... - Positional parameters
+	Options            ShellOptions     // Shell options (set -e, -u, etc.)
+	ReadonlyVars       map[string]bool  // Variables marked as readonly
 	mu                 sync.RWMutex
 }
 
@@ -73,6 +74,7 @@ func GetGlobalState() *GlobalState {
 			StartTime:         time.Now(),
 			ScriptName:        "gosh",         // Default shell name
 			PositionalParams:  []string{},     // No arguments initially
+			ReadonlyVars:      make(map[string]bool),
 		}
 
 		// Also ensure environment variables are set
@@ -416,4 +418,51 @@ func (gs *GlobalState) GetOptionsString() string {
 	}
 	// Note: pipefail doesn't have a single-letter flag
 	return flags.String()
+}
+
+// IsReadonly checks if a variable is marked as readonly
+func (gs *GlobalState) IsReadonly(name string) bool {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.ReadonlyVars[name]
+}
+
+// SetReadonly marks a variable as readonly
+func (gs *GlobalState) SetReadonly(name string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.ReadonlyVars[name] = true
+}
+
+// GetReadonlyVars returns a list of all readonly variable names
+func (gs *GlobalState) GetReadonlyVars() []string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	vars := make([]string, 0, len(gs.ReadonlyVars))
+	for name := range gs.ReadonlyVars {
+		vars = append(vars, name)
+	}
+	return vars
+}
+
+// SetEnvVar sets an environment variable, checking for readonly status
+// Returns an error if the variable is readonly
+func (gs *GlobalState) SetEnvVar(name, value string) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	if gs.ReadonlyVars[name] {
+		return fmt.Errorf("%s: readonly variable", name)
+	}
+	return os.Setenv(name, value)
+}
+
+// UnsetEnvVar unsets an environment variable, checking for readonly status
+// Returns an error if the variable is readonly
+func (gs *GlobalState) UnsetEnvVar(name string) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	if gs.ReadonlyVars[name] {
+		return fmt.Errorf("%s: readonly variable", name)
+	}
+	return os.Unsetenv(name)
 }

@@ -320,10 +320,267 @@ func TestHelpIncludesNewBuiltins(t *testing.T) {
 	// Verify that the builtins map contains our new commands
 	builtinsCopy := Builtins()
 
-	requiredBuiltins := []string{":", "unset", "source", ".", "eval"}
+	requiredBuiltins := []string{":", "unset", "source", ".", "eval", "exec", "readonly"}
 	for _, name := range requiredBuiltins {
 		if _, ok := builtinsCopy[name]; !ok {
 			t.Errorf("Builtin %q not found in builtins map", name)
 		}
 	}
+}
+
+func TestReadonlyCommand(t *testing.T) {
+	// Reset global state for each test
+	resetGlobalStateForTesting()
+
+	tests := []struct {
+		name       string
+		setup      func()
+		input      string
+		wantErr    bool
+		checkVar   string
+		wantValue  string
+		cleanup    func()
+	}{
+		{
+			name: "readonly with value",
+			setup: func() {},
+			input: "readonly TEST_RO_VAR=readonly_value",
+			wantErr: false,
+			checkVar: "TEST_RO_VAR",
+			wantValue: "readonly_value",
+			cleanup: func() {
+				// Can't unset readonly, but we can clean up global state
+				os.Unsetenv("TEST_RO_VAR")
+			},
+		},
+		{
+			name: "readonly existing variable",
+			setup: func() {
+				os.Setenv("TEST_RO_VAR2", "existing_value")
+			},
+			input: "readonly TEST_RO_VAR2",
+			wantErr: false,
+			checkVar: "TEST_RO_VAR2",
+			wantValue: "existing_value",
+			cleanup: func() {
+				os.Unsetenv("TEST_RO_VAR2")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset global state to clear readonly vars
+			resetGlobalStateForTesting()
+
+			tt.setup()
+			defer tt.cleanup()
+
+			cmd, err := NewCommand(tt.input, nil)
+			if err != nil {
+				if tt.wantErr {
+					return
+				}
+				t.Fatalf("NewCommand failed: %v", err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			cmd.Run()
+
+			hasErr := cmd.ReturnCode != 0 || stderr.Len() > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("hasErr = %v, wantErr = %v (stderr: %q)", hasErr, tt.wantErr, stderr.String())
+			}
+
+			if tt.checkVar != "" {
+				val := os.Getenv(tt.checkVar)
+				if val != tt.wantValue {
+					t.Errorf("Variable %s = %q, want %q", tt.checkVar, val, tt.wantValue)
+				}
+			}
+		})
+	}
+}
+
+func TestReadonlyPreventsModification(t *testing.T) {
+	// Reset global state
+	resetGlobalStateForTesting()
+	defer func() {
+		os.Unsetenv("TEST_RO_PROTECTED")
+	}()
+
+	// First, set a readonly variable
+	cmd1, err := NewCommand("readonly TEST_RO_PROTECTED=protected", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	if cmd1.ReturnCode != 0 {
+		t.Fatalf("Setting readonly var failed: %s", stderr1.String())
+	}
+
+	// Now try to modify it with export
+	cmd2, err := NewCommand("export TEST_RO_PROTECTED=modified", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout2, stderr2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Stderr = &stderr2
+	cmd2.Run()
+
+	// Should fail with non-zero return code
+	if cmd2.ReturnCode == 0 {
+		t.Errorf("Expected export to fail on readonly variable, but it succeeded")
+	}
+
+	// Value should be unchanged
+	val := os.Getenv("TEST_RO_PROTECTED")
+	if val != "protected" {
+		t.Errorf("Readonly variable was modified: got %q, want %q", val, "protected")
+	}
+}
+
+func TestReadonlyPreventsUnset(t *testing.T) {
+	// Reset global state
+	resetGlobalStateForTesting()
+	defer func() {
+		os.Unsetenv("TEST_RO_NOUNSET")
+	}()
+
+	// First, set a readonly variable
+	cmd1, err := NewCommand("readonly TEST_RO_NOUNSET=cannot_unset", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	// Now try to unset it
+	cmd2, err := NewCommand("unset TEST_RO_NOUNSET", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout2, stderr2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Stderr = &stderr2
+	cmd2.Run()
+
+	// Should fail with non-zero return code
+	if cmd2.ReturnCode == 0 {
+		t.Errorf("Expected unset to fail on readonly variable, but it succeeded")
+	}
+
+	// Value should still exist
+	val := os.Getenv("TEST_RO_NOUNSET")
+	if val != "cannot_unset" {
+		t.Errorf("Readonly variable was unset: got %q, want %q", val, "cannot_unset")
+	}
+}
+
+func TestReadonlyList(t *testing.T) {
+	// Reset global state
+	resetGlobalStateForTesting()
+	defer func() {
+		os.Unsetenv("TEST_RO_LIST1")
+		os.Unsetenv("TEST_RO_LIST2")
+	}()
+
+	// Set some readonly variables
+	cmd1, _ := NewCommand("readonly TEST_RO_LIST1=value1", nil)
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	cmd2, _ := NewCommand("readonly TEST_RO_LIST2=value2", nil)
+	var stdout2, stderr2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Stderr = &stderr2
+	cmd2.Run()
+
+	// List readonly variables
+	cmd3, err := NewCommand("readonly -p", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout3, stderr3 bytes.Buffer
+	cmd3.Stdout = &stdout3
+	cmd3.Stderr = &stderr3
+	cmd3.Run()
+
+	output := stdout3.String()
+	if !strings.Contains(output, "TEST_RO_LIST1") {
+		t.Errorf("readonly -p should list TEST_RO_LIST1, got: %s", output)
+	}
+	if !strings.Contains(output, "TEST_RO_LIST2") {
+		t.Errorf("readonly -p should list TEST_RO_LIST2, got: %s", output)
+	}
+}
+
+func TestExecNoCommand(t *testing.T) {
+	// exec without a command should succeed (for redirection-only use case)
+	cmd, err := NewCommand("exec", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	if cmd.ReturnCode != 0 {
+		t.Errorf("exec with no args should succeed, got return code %d", cmd.ReturnCode)
+	}
+}
+
+func TestExecInvalidOption(t *testing.T) {
+	cmd, err := NewCommand("exec -z /bin/echo hello", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	if cmd.ReturnCode == 0 {
+		t.Errorf("exec with invalid option should fail")
+	}
+}
+
+func TestExecNotFound(t *testing.T) {
+	cmd, err := NewCommand("exec nonexistent_command_12345", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	if cmd.ReturnCode == 0 {
+		t.Errorf("exec with nonexistent command should fail")
+	}
+}
+
+// resetGlobalStateForTesting resets the global state for testing purposes
+func resetGlobalStateForTesting() {
+	gs := GetGlobalState()
+	gs.ReadonlyVars = make(map[string]bool)
 }

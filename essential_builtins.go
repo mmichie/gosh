@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"syscall"
 )
 
 // colonCommand implements the : (null) command
@@ -50,8 +52,11 @@ func unsetCommand(cmd *Command) error {
 	}
 
 	// Unset environment variables
+	gs := GetGlobalState()
 	for _, name := range varNames {
-		os.Unsetenv(name)
+		if err := gs.UnsetEnvVar(name); err != nil {
+			return fmt.Errorf("unset: %v", err)
+		}
 	}
 
 	return nil
@@ -204,5 +209,186 @@ func getBuiltinArgs(cmd *Command) []string {
 	if len(parts) > 1 {
 		return parts[1:]
 	}
+	return nil
+}
+
+// execCommand implements the exec builtin
+// Usage: exec [-c] [-l] [-a name] [command [arguments]]
+// Replaces the shell with command without creating a new process
+// If no command is given, any redirections take effect in the current shell
+func execCommand(cmd *Command) error {
+	args := getBuiltinArgs(cmd)
+
+	// Parse options
+	var clearEnv bool
+	var loginShell bool
+	var argv0 string
+	commandArgs := []string{}
+
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+		if arg == "-c" {
+			clearEnv = true
+			i++
+		} else if arg == "-l" {
+			loginShell = true
+			i++
+		} else if arg == "-a" {
+			i++
+			if i >= len(args) {
+				return fmt.Errorf("exec: -a: option requires an argument")
+			}
+			argv0 = args[i]
+			i++
+		} else if arg == "--" {
+			i++
+			commandArgs = args[i:]
+			break
+		} else if strings.HasPrefix(arg, "-") {
+			return fmt.Errorf("exec: %s: invalid option", arg)
+		} else {
+			commandArgs = args[i:]
+			break
+		}
+	}
+
+	// If no command is given, exec only handles redirections
+	// (redirections are handled by the command execution layer)
+	if len(commandArgs) == 0 {
+		return nil
+	}
+
+	// Find the command in PATH
+	commandPath, err := lookupCommand(commandArgs[0])
+	if err != nil {
+		return fmt.Errorf("exec: %s: %v", commandArgs[0], err)
+	}
+
+	// Prepare argv0 (the name the command sees as $0)
+	if argv0 == "" {
+		argv0 = commandArgs[0]
+	}
+	if loginShell && !strings.HasPrefix(argv0, "-") {
+		argv0 = "-" + argv0
+	}
+
+	// Prepare environment
+	var environ []string
+	if clearEnv {
+		environ = []string{}
+	} else {
+		environ = os.Environ()
+	}
+
+	// Prepare the full argv (argv0 followed by other arguments)
+	argv := append([]string{argv0}, commandArgs[1:]...)
+
+	// Replace the current process with the new command
+	// This never returns on success
+	return syscall.Exec(commandPath, argv, environ)
+}
+
+// lookupCommand finds the full path of a command
+func lookupCommand(name string) (string, error) {
+	// If it contains a slash, use it directly
+	if strings.Contains(name, "/") {
+		if _, err := os.Stat(name); err != nil {
+			return "", fmt.Errorf("no such file or directory")
+		}
+		return filepath.Abs(name)
+	}
+
+	// Search in PATH
+	pathEnv := os.Getenv("PATH")
+	if pathEnv == "" {
+		return "", fmt.Errorf("not found")
+	}
+
+	paths := strings.Split(pathEnv, ":")
+	for _, dir := range paths {
+		fullPath := filepath.Join(dir, name)
+		if info, err := os.Stat(fullPath); err == nil {
+			// Check if it's executable
+			if info.Mode()&0111 != 0 {
+				return fullPath, nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("not found")
+}
+
+// readonlyCommand implements the readonly builtin
+// Usage: readonly [-p] [name[=value] ...]
+// Marks variables as readonly, preventing their modification or unsetting
+func readonlyCommand(cmd *Command) error {
+	args := getBuiltinArgs(cmd)
+	gs := GetGlobalState()
+
+	// Parse options
+	printMode := false
+	varSpecs := []string{}
+
+	for _, arg := range args {
+		if arg == "-p" {
+			printMode = true
+		} else if strings.HasPrefix(arg, "-") {
+			return fmt.Errorf("readonly: %s: invalid option", arg)
+		} else {
+			varSpecs = append(varSpecs, arg)
+		}
+	}
+
+	// If -p or no arguments, print readonly variables
+	if printMode || len(varSpecs) == 0 {
+		return printReadonlyVars(cmd, gs)
+	}
+
+	// Process each variable specification
+	for _, spec := range varSpecs {
+		// Check if it's an assignment (name=value)
+		if idx := strings.Index(spec, "="); idx != -1 {
+			name := spec[:idx]
+			value := spec[idx+1:]
+
+			// Check if already readonly before setting
+			if gs.IsReadonly(name) {
+				return fmt.Errorf("readonly: %s: readonly variable", name)
+			}
+
+			// Set the variable value
+			os.Setenv(name, value)
+
+			// Mark as readonly
+			gs.SetReadonly(name)
+		} else {
+			// Just mark existing variable as readonly
+			name := spec
+
+			// Mark as readonly (even if variable doesn't exist, like bash)
+			gs.SetReadonly(name)
+		}
+	}
+
+	return nil
+}
+
+// printReadonlyVars prints all readonly variables in a reusable format
+func printReadonlyVars(cmd *Command, gs *GlobalState) error {
+	readonlyVars := gs.GetReadonlyVars()
+
+	// Sort for consistent output
+	sort.Strings(readonlyVars)
+
+	for _, name := range readonlyVars {
+		value := os.Getenv(name)
+		if value != "" {
+			fmt.Fprintf(cmd.Stdout, "declare -r %s=%q\n", name, value)
+		} else {
+			fmt.Fprintf(cmd.Stdout, "declare -r %s\n", name)
+		}
+	}
+
 	return nil
 }

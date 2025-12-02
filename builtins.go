@@ -66,6 +66,8 @@ func init() {
 	builtins["source"] = sourceCommand
 	builtins["."] = sourceCommand   // . is an alias for source
 	builtins["eval"] = evalCommand
+	builtins["exec"] = execCommand
+	builtins["readonly"] = readonlyCommand
 }
 
 // Helper function to extract Parts from a CommandElement
@@ -282,6 +284,7 @@ func help(cmd *Command) error {
   echo        - Display text
   env         - Display environment variables
   eval        - Evaluate arguments as a shell command
+  exec        - Replace shell with command (options: -c, -l, -a name)
   exit        - Exit the shell
   export      - Set environment variables
   false       - Return failure status
@@ -294,6 +297,7 @@ func help(cmd *Command) error {
   prompt      - Set shell prompt
   pushd       - Push directory onto stack and change to it
   pwd         - Print working directory
+  readonly    - Mark variables as readonly (options: -p)
   set         - Set shell options and positional parameters
   shopt       - Set bash-specific shell options
   source      - Source a script file
@@ -380,7 +384,8 @@ func export(cmd *Command) error {
 	}
 
 	name, value := parts[0], parts[1]
-	err := os.Setenv(name, value)
+	gs := GetGlobalState()
+	err := gs.SetEnvVar(name, value)
 	if err != nil {
 		return fmt.Errorf("export: %v", err)
 	}
