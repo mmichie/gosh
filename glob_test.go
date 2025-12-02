@@ -99,6 +99,144 @@ func TestExpandWildcards(t *testing.T) {
 	}
 }
 
+func TestRecursiveGlobbing(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "gosh-recursive-glob-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Save the current directory to restore it later
+	originalDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Failed to get current directory: %v", err)
+	}
+	defer os.Chdir(originalDir)
+
+	// Change to the temp directory
+	if err := os.Chdir(tempDir); err != nil {
+		t.Fatalf("Failed to change to temp directory: %v", err)
+	}
+
+	// Create a more complex directory structure for recursive glob testing
+	createRecursiveTestFiles(t, tempDir)
+
+	testCases := []struct {
+		name     string
+		args     []string
+		expected []string
+	}{
+		{
+			name:     "Recursive glob all .txt files",
+			args:     []string{"**/*.txt"},
+			expected: []string{"file1.txt", "file2.txt", "src/main.txt", "src/lib/util.txt", "src/lib/deep/nested.txt"},
+		},
+		{
+			name:     "Recursive glob all .go files",
+			args:     []string{"**/*.go"},
+			expected: []string{"main.go", "src/main.go", "src/lib/lib.go", "src/lib/deep/deep.go"},
+		},
+		{
+			name:     "Recursive glob under specific directory",
+			args:     []string{"src/**/*.go"},
+			expected: []string{"src/main.go", "src/lib/lib.go", "src/lib/deep/deep.go"},
+		},
+		{
+			name:     "Recursive glob under nested directory",
+			args:     []string{"src/lib/**/*.go"},
+			expected: []string{"src/lib/lib.go", "src/lib/deep/deep.go"},
+		},
+		{
+			name:     "Recursive glob matching specific filename",
+			args:     []string{"**/main.go"},
+			expected: []string{"main.go", "src/main.go"},
+		},
+		{
+			name:     "Recursive glob all files (no suffix)",
+			args:     []string{"src/lib/**"},
+			expected: []string{"src/lib/lib.go", "src/lib/util.txt", "src/lib/deep/deep.go", "src/lib/deep/nested.txt"},
+		},
+		{
+			name:     "Recursive glob with question mark",
+			args:     []string{"**/*.g?"},
+			expected: []string{"main.go", "src/main.go", "src/lib/lib.go", "src/lib/deep/deep.go"},
+		},
+		{
+			name:     "Recursive glob no matches",
+			args:     []string{"**/*.xyz"},
+			expected: []string{"**/*.xyz"},
+		},
+		{
+			name:     "Recursive glob with directory wildcard prefix",
+			args:     []string{"src/*/**/*.go"},
+			expected: []string{"src/lib/lib.go", "src/lib/deep/deep.go"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ExpandWildcards(tc.args)
+
+			// Sort the results for reliable comparison
+			sort.Strings(result)
+			sort.Strings(tc.expected)
+
+			if !reflect.DeepEqual(result, tc.expected) {
+				t.Errorf("Expected %v, got %v", tc.expected, result)
+			}
+		})
+	}
+}
+
+// createRecursiveTestFiles creates a deeper directory structure for recursive glob testing
+func createRecursiveTestFiles(t *testing.T, baseDir string) {
+	// Create directory structure:
+	// .
+	// ├── main.go
+	// ├── file1.txt
+	// ├── file2.txt
+	// ├── src/
+	// │   ├── main.go
+	// │   ├── main.txt
+	// │   └── lib/
+	// │       ├── lib.go
+	// │       ├── util.txt
+	// │       └── deep/
+	// │           ├── deep.go
+	// │           └── nested.txt
+	// └── .hidden/
+	//     └── secret.txt
+
+	files := map[string]bool{
+		"main.go":                 false,
+		"file1.txt":               false,
+		"file2.txt":               false,
+		"src/main.go":             false,
+		"src/main.txt":            false,
+		"src/lib/lib.go":          false,
+		"src/lib/util.txt":        false,
+		"src/lib/deep/deep.go":    false,
+		"src/lib/deep/nested.txt": false,
+		".hidden/secret.txt":      false, // Hidden directory should be skipped
+	}
+
+	for filePath := range files {
+		fullPath := filepath.Join(baseDir, filePath)
+		dir := filepath.Dir(fullPath)
+
+		// Create directory if needed
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create directory %s: %v", dir, err)
+		}
+
+		// Create file
+		if err := os.WriteFile(fullPath, []byte("test content"), 0644); err != nil {
+			t.Fatalf("Failed to create file %s: %v", filePath, err)
+		}
+	}
+}
+
 // createTestFiles creates test files and directories for glob testing
 func createTestFiles(t *testing.T, baseDir string) {
 	// Create regular files
