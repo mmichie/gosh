@@ -583,4 +583,457 @@ func TestExecNotFound(t *testing.T) {
 func resetGlobalStateForTesting() {
 	gs := GetGlobalState()
 	gs.ReadonlyVars = make(map[string]bool)
+	gs.SignalTraps = make(map[string]string)
+	gs.VarAttributes = make(map[string]*VariableAttributes)
+	gs.ScopeStack = []VariableScope{}
+	gs.InFunction = false
+	gs.FunctionDepth = 0
+}
+
+func TestTrapCommand(t *testing.T) {
+	resetGlobalStateForTesting()
+
+	tests := []struct {
+		name       string
+		input      string
+		wantOutput string
+		wantErr    bool
+	}{
+		{
+			name:       "trap list signals",
+			input:      "trap -l",
+			wantOutput: "SIG",
+			wantErr:    false,
+		},
+		{
+			name:       "trap print with no traps",
+			input:      "trap -p",
+			wantOutput: "",
+			wantErr:    false,
+		},
+		{
+			name:       "trap set handler",
+			input:      "trap 'echo trapped' INT",
+			wantOutput: "",
+			wantErr:    false,
+		},
+		{
+			name:       "trap invalid option",
+			input:      "trap -z",
+			wantOutput: "",
+			wantErr:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetGlobalStateForTesting()
+
+			cmd, err := NewCommand(tt.input, nil)
+			if err != nil {
+				if tt.wantErr {
+					return
+				}
+				t.Fatalf("NewCommand failed: %v", err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			cmd.Run()
+
+			hasErr := cmd.ReturnCode != 0 || stderr.Len() > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("hasErr = %v, wantErr = %v (stderr: %q)", hasErr, tt.wantErr, stderr.String())
+			}
+
+			if tt.wantOutput != "" && !strings.Contains(stdout.String(), tt.wantOutput) {
+				t.Errorf("Output = %q, want to contain %q", stdout.String(), tt.wantOutput)
+			}
+		})
+	}
+}
+
+func TestTrapSetAndGet(t *testing.T) {
+	resetGlobalStateForTesting()
+	gs := GetGlobalState()
+
+	// Set a trap
+	cmd1, err := NewCommand("trap 'echo goodbye' EXIT", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	// Verify trap was set
+	trapCmd, exists := gs.GetTrap("EXIT")
+	if !exists {
+		t.Errorf("EXIT trap should be set")
+	}
+	if trapCmd != "echo goodbye" {
+		t.Errorf("EXIT trap = %q, want %q", trapCmd, "echo goodbye")
+	}
+
+	// Print the trap
+	cmd2, _ := NewCommand("trap -p EXIT", nil)
+	var stdout2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Run()
+
+	output := stdout2.String()
+	if !strings.Contains(output, "echo goodbye") {
+		t.Errorf("trap -p should show EXIT trap, got: %s", output)
+	}
+}
+
+func TestTrapClear(t *testing.T) {
+	resetGlobalStateForTesting()
+	gs := GetGlobalState()
+
+	// Set a trap
+	cmd1, _ := NewCommand("trap 'echo test' HUP", nil)
+	var stdout1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Run()
+
+	// Clear the trap
+	cmd2, _ := NewCommand("trap - HUP", nil)
+	var stdout2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Run()
+
+	// Verify trap was cleared
+	_, exists := gs.GetTrap("HUP")
+	if exists {
+		t.Errorf("HUP trap should be cleared")
+	}
+}
+
+func TestReturnCommand(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantCode int
+	}{
+		{
+			name:     "return with no arg",
+			input:    "return",
+			wantCode: 0, // Uses last exit status
+		},
+		{
+			name:     "return with 0",
+			input:    "return 0",
+			wantCode: 0,
+		},
+		{
+			name:     "return with 1",
+			input:    "return 1",
+			wantCode: 1,
+		},
+		{
+			name:     "return with 42",
+			input:    "return 42",
+			wantCode: 42,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd, err := NewCommand(tt.input, nil)
+			if err != nil {
+				t.Fatalf("NewCommand failed: %v", err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			cmd.Run()
+
+			if cmd.ReturnCode != tt.wantCode {
+				t.Errorf("ReturnCode = %d, want %d", cmd.ReturnCode, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestReturnInvalidArg(t *testing.T) {
+	cmd, err := NewCommand("return foo", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	// Should fail with non-numeric argument
+	if cmd.ReturnCode == 0 {
+		t.Errorf("return with non-numeric arg should fail")
+	}
+}
+
+func TestLocalOutsideFunction(t *testing.T) {
+	resetGlobalStateForTesting()
+
+	cmd, err := NewCommand("local foo=bar", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	// Should fail outside function
+	if cmd.ReturnCode == 0 {
+		t.Errorf("local outside function should fail")
+	}
+}
+
+func TestLocalInFunction(t *testing.T) {
+	resetGlobalStateForTesting()
+	gs := GetGlobalState()
+
+	// Simulate being in a function
+	gs.PushScope()
+	defer gs.PopScope()
+
+	cmd, err := NewCommand("local foo=bar", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	// Should succeed in function
+	if cmd.ReturnCode != 0 {
+		t.Errorf("local in function should succeed, got error: %s", stderr.String())
+	}
+
+	// Verify variable was set
+	val := os.Getenv("foo")
+	if val != "bar" {
+		t.Errorf("local variable = %q, want %q", val, "bar")
+	}
+}
+
+func TestDeclareCommand(t *testing.T) {
+	resetGlobalStateForTesting()
+	defer os.Unsetenv("TEST_DECLARE_VAR")
+
+	tests := []struct {
+		name       string
+		input      string
+		checkVar   string
+		wantValue  string
+		wantErr    bool
+	}{
+		{
+			name:      "declare with value",
+			input:     "declare TEST_DECLARE_VAR=hello",
+			checkVar:  "TEST_DECLARE_VAR",
+			wantValue: "hello",
+			wantErr:   false,
+		},
+		{
+			name:      "declare -x exports",
+			input:     "declare -x TEST_DECLARE_VAR=exported",
+			checkVar:  "TEST_DECLARE_VAR",
+			wantValue: "exported",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resetGlobalStateForTesting()
+			os.Unsetenv(tt.checkVar)
+
+			cmd, err := NewCommand(tt.input, nil)
+			if err != nil {
+				if tt.wantErr {
+					return
+				}
+				t.Fatalf("NewCommand failed: %v", err)
+			}
+
+			var stdout, stderr bytes.Buffer
+			cmd.Stdout = &stdout
+			cmd.Stderr = &stderr
+
+			cmd.Run()
+
+			hasErr := cmd.ReturnCode != 0 || stderr.Len() > 0
+			if hasErr != tt.wantErr {
+				t.Errorf("hasErr = %v, wantErr = %v (stderr: %q)", hasErr, tt.wantErr, stderr.String())
+			}
+
+			if tt.checkVar != "" {
+				val := os.Getenv(tt.checkVar)
+				if val != tt.wantValue {
+					t.Errorf("Variable %s = %q, want %q", tt.checkVar, val, tt.wantValue)
+				}
+			}
+		})
+	}
+}
+
+func TestDeclareReadonly(t *testing.T) {
+	resetGlobalStateForTesting()
+	defer os.Unsetenv("TEST_DECLARE_RO")
+
+	// Declare readonly variable
+	cmd1, err := NewCommand("declare -r TEST_DECLARE_RO=readonly_val", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	if cmd1.ReturnCode != 0 {
+		t.Fatalf("declare -r failed: %s", stderr1.String())
+	}
+
+	// Verify it's readonly
+	gs := GetGlobalState()
+	if !gs.IsReadonly("TEST_DECLARE_RO") {
+		t.Errorf("TEST_DECLARE_RO should be readonly")
+	}
+
+	// Try to modify it
+	cmd2, _ := NewCommand("declare TEST_DECLARE_RO=modified", nil)
+	var stdout2, stderr2 bytes.Buffer
+	cmd2.Stdout = &stdout2
+	cmd2.Stderr = &stderr2
+	cmd2.Run()
+
+	// Should fail
+	if cmd2.ReturnCode == 0 {
+		t.Errorf("modifying readonly variable should fail")
+	}
+
+	// Value should be unchanged
+	val := os.Getenv("TEST_DECLARE_RO")
+	if val != "readonly_val" {
+		t.Errorf("readonly variable was modified: got %q, want %q", val, "readonly_val")
+	}
+}
+
+func TestDeclareInteger(t *testing.T) {
+	resetGlobalStateForTesting()
+	defer os.Unsetenv("TEST_INT_VAR")
+
+	// Declare integer variable
+	cmd1, err := NewCommand("declare -i TEST_INT_VAR=42", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+	var stdout1, stderr1 bytes.Buffer
+	cmd1.Stdout = &stdout1
+	cmd1.Stderr = &stderr1
+	cmd1.Run()
+
+	if cmd1.ReturnCode != 0 {
+		t.Fatalf("declare -i failed: %s", stderr1.String())
+	}
+
+	// Verify value
+	val := os.Getenv("TEST_INT_VAR")
+	if val != "42" {
+		t.Errorf("integer variable = %q, want %q", val, "42")
+	}
+
+	// Verify it has integer attribute
+	gs := GetGlobalState()
+	attrs := gs.GetVarAttributes("TEST_INT_VAR")
+	if attrs == nil || !attrs.Integer {
+		t.Errorf("TEST_INT_VAR should have integer attribute")
+	}
+}
+
+func TestDeclarePrint(t *testing.T) {
+	resetGlobalStateForTesting()
+	defer os.Unsetenv("TEST_PRINT_VAR")
+
+	// Set a variable with attributes
+	os.Setenv("TEST_PRINT_VAR", "print_value")
+	gs := GetGlobalState()
+	gs.SetVarAttributes("TEST_PRINT_VAR", &VariableAttributes{Export: true})
+
+	// Print it
+	cmd, err := NewCommand("declare -p TEST_PRINT_VAR", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	output := stdout.String()
+	if !strings.Contains(output, "TEST_PRINT_VAR") {
+		t.Errorf("declare -p should show variable name, got: %s", output)
+	}
+	if !strings.Contains(output, "print_value") {
+		t.Errorf("declare -p should show variable value, got: %s", output)
+	}
+	if !strings.Contains(output, "-x") {
+		t.Errorf("declare -p should show export flag, got: %s", output)
+	}
+}
+
+func TestTypesetAliasForDeclare(t *testing.T) {
+	resetGlobalStateForTesting()
+	defer os.Unsetenv("TEST_TYPESET_VAR")
+
+	// typeset should work the same as declare
+	cmd, err := NewCommand("typeset TEST_TYPESET_VAR=typeset_value", nil)
+	if err != nil {
+		t.Fatalf("NewCommand failed: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	cmd.Run()
+
+	if cmd.ReturnCode != 0 {
+		t.Errorf("typeset should succeed, got error: %s", stderr.String())
+	}
+
+	val := os.Getenv("TEST_TYPESET_VAR")
+	if val != "typeset_value" {
+		t.Errorf("typeset variable = %q, want %q", val, "typeset_value")
+	}
+}
+
+func TestBuiltinsIncludeNewCommands(t *testing.T) {
+	builtinsCopy := Builtins()
+
+	requiredBuiltins := []string{
+		"trap", "return", "local", "declare", "typeset",
+	}
+	for _, name := range requiredBuiltins {
+		if _, ok := builtinsCopy[name]; !ok {
+			t.Errorf("Builtin %q not found in builtins map", name)
+		}
+	}
 }

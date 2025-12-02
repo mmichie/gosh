@@ -385,8 +385,14 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 			err := builtin(tmpCmd)
 			if err != nil {
-				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
-				cmd.ReturnCode = 1
+				// Check if this is a ReturnError (from the return builtin)
+				if returnErr, ok := err.(*ReturnError); ok {
+					// Use the return code from the return command
+					cmd.ReturnCode = returnErr.Code
+				} else {
+					fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
+					cmd.ReturnCode = 1
+				}
 			} else {
 				// If the builtin explicitly set a return code (e.g., false command), use it
 				if tmpCmd.ReturnCode != 0 {

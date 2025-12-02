@@ -68,6 +68,11 @@ func init() {
 	builtins["eval"] = evalCommand
 	builtins["exec"] = execCommand
 	builtins["readonly"] = readonlyCommand
+	builtins["trap"] = trapCommand
+	builtins["return"] = returnCommand
+	builtins["local"] = localCommand
+	builtins["declare"] = declareCommand
+	builtins["typeset"] = typesetCommand // Alias for declare
 }
 
 // Helper function to extract Parts from a CommandElement
@@ -280,6 +285,7 @@ func help(cmd *Command) error {
   alias       - Create command aliases
   bg          - Resume job in background
   cd          - Change directory (supports CDPATH)
+  declare     - Declare variables with attributes (options: -r, -x, -i, -p, -g)
   dirs        - Display directory stack (options: -v, -p, -c)
   echo        - Display text
   env         - Display environment variables
@@ -292,16 +298,20 @@ func help(cmd *Command) error {
   help        - Display this help message
   history     - Display command history
   jobs        - List active jobs
+  local       - Create function-local variables
   m28         - Execute M28 Lisp expression
   popd        - Pop directory from stack and change to it
   prompt      - Set shell prompt
   pushd       - Push directory onto stack and change to it
   pwd         - Print working directory
   readonly    - Mark variables as readonly (options: -p)
+  return      - Return from function or sourced script (return [n])
   set         - Set shell options and positional parameters
   shopt       - Set bash-specific shell options
   source      - Source a script file
+  trap        - Set signal handlers (options: -l, -p)
   true        - Return success status
+  typeset     - Declare variables (alias for declare)
   unalias     - Remove command aliases
   unset       - Remove environment variables
 
@@ -332,6 +342,20 @@ Directory Navigation:
 
   CDPATH: Set CDPATH environment variable to a colon-separated list of
           directories to search when using cd with a relative path.
+
+Signal Handling:
+  trap 'cmd' SIG  - Execute cmd when signal SIG is received
+  trap - SIG      - Reset signal to default behavior
+  trap '' SIG     - Ignore signal
+  trap -l         - List signal names
+  trap -p         - Print current traps
+
+Variable Attributes (declare):
+  declare -r VAR  - Make variable readonly
+  declare -x VAR  - Export variable to environment
+  declare -i VAR  - Mark as integer (arithmetic evaluation)
+  declare -g VAR  - Declare as global (when in function)
+  declare -p VAR  - Print variable with attributes
 `
 	_, err := fmt.Fprint(cmd.Stdout, helpText)
 	return err

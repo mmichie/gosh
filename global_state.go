@@ -11,27 +11,51 @@ import (
 
 // ShellOptions contains all shell option flags (set -e, -u, -x, -o pipefail, etc.)
 type ShellOptions struct {
-	Errexit  bool // -e: Exit immediately if a command exits with non-zero status
-	Nounset  bool // -u: Treat unset variables as an error
-	Xtrace   bool // -x: Print commands and their arguments as they are executed
-	Pipefail bool // -o pipefail: Return exit status of rightmost failed command in pipeline
-	Verbose  bool // -v: Print shell input lines as they are read
+	Errexit   bool // -e: Exit immediately if a command exits with non-zero status
+	Nounset   bool // -u: Treat unset variables as an error
+	Xtrace    bool // -x: Print commands and their arguments as they are executed
+	Pipefail  bool // -o pipefail: Return exit status of rightmost failed command in pipeline
+	Verbose   bool // -v: Print shell input lines as they are read
 	Noclobber bool // -C: Don't overwrite existing files with >
 	Allexport bool // -a: Export all variables assigned to
+}
+
+// SignalTrap holds a command string to execute when a signal is received
+type SignalTrap struct {
+	Command string // Command to execute
+	Signal  string // Signal name (e.g., "EXIT", "INT", "TERM")
+}
+
+// VariableScope represents a scope for local variables (used by functions)
+type VariableScope struct {
+	LocalVars map[string]string // Local variable values
+	ParentEnv map[string]string // Snapshot of environment at scope entry
+}
+
+// VariableAttributes holds attributes for declared variables
+type VariableAttributes struct {
+	Readonly bool // -r: readonly
+	Export   bool // -x: export
+	Integer  bool // -i: integer (arithmetic evaluation)
 }
 
 type GlobalState struct {
 	CWD                string
 	PreviousDir        string
-	DirStack           []string         // Directory stack for pushd/popd
-	ShellPID           int              // $$ - Current shell PID
-	LastBackgroundPID  int              // $! - Last background process PID
-	LastExitStatus     int              // $? - Exit status of last command
-	StartTime          time.Time        // For calculating $SECONDS
-	ScriptName         string           // $0 - Script/shell name
-	PositionalParams   []string         // $1, $2, ... - Positional parameters
-	Options            ShellOptions     // Shell options (set -e, -u, etc.)
-	ReadonlyVars       map[string]bool  // Variables marked as readonly
+	DirStack           []string                       // Directory stack for pushd/popd
+	ShellPID           int                            // $$ - Current shell PID
+	LastBackgroundPID  int                            // $! - Last background process PID
+	LastExitStatus     int                            // $? - Exit status of last command
+	StartTime          time.Time                      // For calculating $SECONDS
+	ScriptName         string                         // $0 - Script/shell name
+	PositionalParams   []string                       // $1, $2, ... - Positional parameters
+	Options            ShellOptions                   // Shell options (set -e, -u, etc.)
+	ReadonlyVars       map[string]bool                // Variables marked as readonly
+	SignalTraps        map[string]string              // Signal handlers: signal name -> command
+	ScopeStack         []VariableScope                // Stack of variable scopes for functions
+	VarAttributes      map[string]*VariableAttributes // Variable attributes from declare
+	InFunction         bool                           // Whether we're currently in a function
+	FunctionDepth      int                            // Nesting depth of function calls
 	mu                 sync.RWMutex
 }
 
@@ -72,9 +96,14 @@ func GetGlobalState() *GlobalState {
 			LastBackgroundPID: 0,
 			LastExitStatus:    0,
 			StartTime:         time.Now(),
-			ScriptName:        "gosh",         // Default shell name
-			PositionalParams:  []string{},     // No arguments initially
+			ScriptName:        "gosh",                              // Default shell name
+			PositionalParams:  []string{},                          // No arguments initially
 			ReadonlyVars:      make(map[string]bool),
+			SignalTraps:       make(map[string]string),             // No traps initially
+			ScopeStack:        []VariableScope{},                   // No scopes initially
+			VarAttributes:     make(map[string]*VariableAttributes),
+			InFunction:        false,
+			FunctionDepth:     0,
 		}
 
 		// Also ensure environment variables are set
@@ -465,4 +494,161 @@ func (gs *GlobalState) UnsetEnvVar(name string) error {
 		return fmt.Errorf("%s: readonly variable", name)
 	}
 	return os.Unsetenv(name)
+}
+
+// SetTrap sets a signal trap handler
+func (gs *GlobalState) SetTrap(signal, command string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	if command == "" || command == "-" {
+		delete(gs.SignalTraps, signal)
+	} else {
+		gs.SignalTraps[signal] = command
+	}
+}
+
+// GetTrap gets the trap command for a signal
+func (gs *GlobalState) GetTrap(signal string) (string, bool) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	cmd, exists := gs.SignalTraps[signal]
+	return cmd, exists
+}
+
+// GetAllTraps returns a copy of all signal traps
+func (gs *GlobalState) GetAllTraps() map[string]string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	traps := make(map[string]string)
+	for k, v := range gs.SignalTraps {
+		traps[k] = v
+	}
+	return traps
+}
+
+// ClearTrap removes a trap handler
+func (gs *GlobalState) ClearTrap(signal string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	delete(gs.SignalTraps, signal)
+}
+
+// PushScope creates a new variable scope (called when entering a function)
+func (gs *GlobalState) PushScope() {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	// Capture current environment
+	parentEnv := make(map[string]string)
+	for _, env := range os.Environ() {
+		parts := strings.SplitN(env, "=", 2)
+		if len(parts) == 2 {
+			parentEnv[parts[0]] = parts[1]
+		}
+	}
+
+	scope := VariableScope{
+		LocalVars: make(map[string]string),
+		ParentEnv: parentEnv,
+	}
+	gs.ScopeStack = append(gs.ScopeStack, scope)
+	gs.FunctionDepth++
+	gs.InFunction = true
+}
+
+// PopScope removes the current variable scope (called when exiting a function)
+func (gs *GlobalState) PopScope() {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if len(gs.ScopeStack) == 0 {
+		return
+	}
+
+	// Get the scope being popped
+	scope := gs.ScopeStack[len(gs.ScopeStack)-1]
+
+	// Restore any overwritten environment variables
+	for name := range scope.LocalVars {
+		if origVal, exists := scope.ParentEnv[name]; exists {
+			os.Setenv(name, origVal)
+		} else {
+			os.Unsetenv(name)
+		}
+	}
+
+	gs.ScopeStack = gs.ScopeStack[:len(gs.ScopeStack)-1]
+	gs.FunctionDepth--
+	gs.InFunction = len(gs.ScopeStack) > 0
+}
+
+// SetLocalVar sets a local variable in the current scope
+func (gs *GlobalState) SetLocalVar(name, value string) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	if len(gs.ScopeStack) == 0 {
+		return fmt.Errorf("local: can only be used in a function")
+	}
+
+	// Set in current scope
+	currentScope := &gs.ScopeStack[len(gs.ScopeStack)-1]
+	currentScope.LocalVars[name] = value
+
+	// Also set in environment so it's visible
+	os.Setenv(name, value)
+	return nil
+}
+
+// GetLocalVar gets a local variable from the current scope
+func (gs *GlobalState) GetLocalVar(name string) (string, bool) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+
+	if len(gs.ScopeStack) == 0 {
+		return "", false
+	}
+
+	currentScope := gs.ScopeStack[len(gs.ScopeStack)-1]
+	val, exists := currentScope.LocalVars[name]
+	return val, exists
+}
+
+// IsInFunction returns whether we're currently in a function
+func (gs *GlobalState) IsInFunction() bool {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.InFunction
+}
+
+// GetFunctionDepth returns the current function nesting depth
+func (gs *GlobalState) GetFunctionDepth() int {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.FunctionDepth
+}
+
+// SetVarAttributes sets attributes for a variable
+func (gs *GlobalState) SetVarAttributes(name string, attrs *VariableAttributes) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.VarAttributes[name] = attrs
+}
+
+// GetVarAttributes gets attributes for a variable
+func (gs *GlobalState) GetVarAttributes(name string) *VariableAttributes {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.VarAttributes[name]
+}
+
+// GetAllVarAttributes returns all variables with attributes
+func (gs *GlobalState) GetAllVarAttributes() map[string]*VariableAttributes {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	attrs := make(map[string]*VariableAttributes)
+	for k, v := range gs.VarAttributes {
+		attrs[k] = v
+	}
+	return attrs
 }
