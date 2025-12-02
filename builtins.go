@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"gosh/m28adapter"
 	"gosh/parser"
 )
 
@@ -657,12 +656,8 @@ func runM28(cmd *Command) error {
 	cmdParts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
 	expression := strings.Join(cmdParts[1:], " ")
 
-	// Get the global interpreter instance
-	interpreter := m28Interpreter
-	if interpreter == nil {
-		interpreter = m28adapter.NewInterpreter()
-		m28Interpreter = interpreter
-	}
+	// Get the global interpreter instance using the helper function
+	interpreter := GetM28Interpreter()
 
 	// Strip quotes if they exist
 	expression = strings.Trim(expression, "\"'")

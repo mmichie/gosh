@@ -58,6 +58,7 @@ func main() {
 	fmt.Println("Tab completion is ready to use")
 
 	jobManager := gosh.NewJobManager()
+	gosh.SetGlobalJobManager(jobManager)
 
 	// Declare completer variable at the beginning
 	var completer readline.AutoCompleter
@@ -197,6 +198,7 @@ func main() {
 
 func executeCommand(cmd string) {
 	jobManager := gosh.NewJobManager()
+	gosh.SetGlobalJobManager(jobManager)
 
 	// Create argument history for command line mode
 	argHistory, err := gosh.NewArgHistory("")
@@ -250,6 +252,7 @@ func executeScript(scriptPath string, args []string) {
 
 	// Create job manager for the script
 	jobManager := gosh.NewJobManager()
+	gosh.SetGlobalJobManager(jobManager)
 
 	// Execute each line of the script
 	exitCode := 0

@@ -30,6 +30,59 @@ type Command struct {
 }
 
 var m28Interpreter *m28adapter.Interpreter
+var globalJobManager *JobManager
+
+// SetGlobalJobManager sets the global job manager for M28 integration
+func SetGlobalJobManager(jm *JobManager) {
+	globalJobManager = jm
+}
+
+// GetM28Interpreter returns the global M28 interpreter, initializing it if needed
+func GetM28Interpreter() *m28adapter.Interpreter {
+	if m28Interpreter == nil {
+		m28Interpreter = m28adapter.NewInterpreter()
+		registerGoshM28Functions()
+	}
+	return m28Interpreter
+}
+
+// registerGoshM28Functions registers gosh-specific functions with the M28 interpreter
+func registerGoshM28Functions() {
+	if m28Interpreter == nil {
+		return
+	}
+
+	gs := GetGlobalState()
+
+	// Shell executor that uses sh -c for command execution
+	executor := func(command string) (stdout string, stderr string, exitCode int, err error) {
+		return m28adapter.DefaultShellExecutor(command)
+	}
+
+	// Jobs provider
+	jobsProvider := func() []m28adapter.JobInfo {
+		if globalJobManager == nil {
+			return nil
+		}
+		jobs := globalJobManager.ListJobs()
+		result := make([]m28adapter.JobInfo, len(jobs))
+		for i, job := range jobs {
+			pid := 0
+			if job.Cmd != nil && job.Cmd.Process != nil {
+				pid = job.Cmd.Process.Pid
+			}
+			result[i] = m28adapter.JobInfo{
+				ID:      job.ID,
+				Command: job.Command,
+				Status:  job.Status,
+				PID:     pid,
+			}
+		}
+		return result
+	}
+
+	m28Interpreter.RegisterGoshFunctions(executor, jobsProvider, gs)
+}
 
 // getExitCode extracts the actual exit code from an error
 // Returns the exit code, or 1 if it cannot be determined
@@ -750,10 +803,8 @@ func findBalancedParens(s string) []struct{ start, end int } {
 }
 
 func evaluateM28InCommand(cmdString string) (string, error) {
-	// Initialize m28 interpreter if needed
-	if m28Interpreter == nil {
-		m28Interpreter = m28adapter.NewInterpreter()
-	}
+	// Initialize m28 interpreter if needed using the helper function
+	interpreter := GetM28Interpreter()
 
 	// Find all balanced parentheses expressions
 	expressions := findBalancedParens(cmdString)
@@ -767,7 +818,7 @@ func evaluateM28InCommand(cmdString string) (string, error) {
 		match := cmdString[expr.start:expr.end]
 
 		if m28adapter.IsLispExpression(match) {
-			evalResult, err := m28Interpreter.Execute(match)
+			evalResult, err := interpreter.Execute(match)
 			if err != nil {
 				lastErr = fmt.Errorf("in '%s': %v", match, err)
 				continue // Keep the original expression if there's an error
