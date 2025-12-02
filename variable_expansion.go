@@ -1,6 +1,7 @@
 package gosh
 
 import (
+	"fmt"
 	"math/rand"
 	"os"
 	"regexp"
@@ -98,4 +99,89 @@ func ExpandVariablesInArgs(args []string) []string {
 		expanded[i] = ExpandSpecialVariables(arg)
 	}
 	return expanded
+}
+
+// ExpandVariablesInArgsWithNounset expands variables and returns an error if
+// nounset is enabled and an unset variable is referenced
+func ExpandVariablesInArgsWithNounset(args []string) ([]string, error) {
+	state := GetGlobalState()
+	opts := state.GetOptions()
+
+	if !opts.Nounset {
+		// If nounset is not enabled, use the regular expansion
+		return ExpandVariablesInArgs(args), nil
+	}
+
+	expanded := make([]string, len(args))
+	for i, arg := range args {
+		result, err := expandWithNounsetCheck(arg)
+		if err != nil {
+			return nil, err
+		}
+		expanded[i] = result
+	}
+	return expanded, nil
+}
+
+// expandWithNounsetCheck expands variables and errors on unset variables
+func expandWithNounsetCheck(s string) (string, error) {
+	state := GetGlobalState()
+
+	// First check for unset variables before doing any expansion
+
+	// Check ${VAR} format for unset variables
+	braceRe := regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)\}`)
+	for _, match := range braceRe.FindAllStringSubmatch(s, -1) {
+		varName := match[1]
+
+		// Check if it's a numeric positional parameter
+		if num, err := strconv.Atoi(varName); err == nil {
+			if num == 0 {
+				continue // $0 is always set
+			}
+			param := state.GetPositionalParam(num)
+			if param == "" && num > state.GetPositionalParamCount() {
+				return "", fmt.Errorf("unbound variable: %s", varName)
+			}
+			continue
+		}
+
+		// Check if it's an environment variable
+		if _, exists := os.LookupEnv(varName); !exists {
+			// Check if it's a special variable that's always set
+			if !isSpecialVariable(varName) {
+				return "", fmt.Errorf("unbound variable: %s", varName)
+			}
+		}
+	}
+
+	// Check $VAR format for unset variables
+	simpleRe := regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
+	for _, match := range simpleRe.FindAllStringSubmatch(s, -1) {
+		varName := match[1]
+
+		// Skip special variables that are always defined
+		if isSpecialVariable(varName) {
+			continue
+		}
+
+		// Check if it's an environment variable
+		if _, exists := os.LookupEnv(varName); !exists {
+			return "", fmt.Errorf("unbound variable: %s", varName)
+		}
+	}
+
+	// All variables are set, do the regular expansion
+	return ExpandSpecialVariables(s), nil
+}
+
+// isSpecialVariable returns true if the variable name is a special variable
+// that is always defined (like PPID, RANDOM, SECONDS, etc.)
+func isSpecialVariable(name string) bool {
+	switch name {
+	case "PPID", "RANDOM", "SECONDS", "PWD", "OLDPWD", "HOME", "USER", "SHELL", "PATH":
+		return true
+	default:
+		return false
+	}
 }

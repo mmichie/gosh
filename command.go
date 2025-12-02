@@ -100,12 +100,24 @@ func (cmd *Command) Run() {
 	cmd.TTY = os.Getenv("TTY")
 	cmd.EUID = os.Geteuid()
 
+	gs := GetGlobalState()
+	opts := gs.GetOptions()
+
 	// Execute all LogicalBlocks (commands separated by semicolons)
 	for _, block := range cmd.Command.LogicalBlocks {
 
 		// Execute the first pipeline in the block
 		cmd.executePipeline(block.FirstPipeline)
 		var returnCode int = cmd.ReturnCode
+
+		// Check errexit: exit if command failed and not in a conditional context
+		if opts.Errexit && returnCode != 0 && len(block.RestPipelines) == 0 {
+			// Exit the shell on failure (errexit behavior)
+			cmd.EndTime = time.Now()
+			cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+			gs.SetLastExitStatus(cmd.ReturnCode)
+			return
+		}
 
 		// Process any logical operators (AND/OR) that follow
 		for i := 0; i < len(block.RestPipelines); i++ {
@@ -130,19 +142,38 @@ func (cmd *Command) Run() {
 
 		// Set the final return code for this block
 		cmd.ReturnCode = returnCode
+
+		// Check errexit after the whole logical block
+		if opts.Errexit && returnCode != 0 {
+			cmd.EndTime = time.Now()
+			cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+			gs.SetLastExitStatus(cmd.ReturnCode)
+			return
+		}
 	}
 
 	cmd.EndTime = time.Now()
 	cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
 
 	// Update the last exit status in global state
-	GetGlobalState().SetLastExitStatus(cmd.ReturnCode)
+	gs.SetLastExitStatus(cmd.ReturnCode)
 }
 
 func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	var outputFile *os.File
 	var inputCleanup func()
 	lastOutput := cmd.Stdin
+
+	gs := GetGlobalState()
+	opts := gs.GetOptions()
+
+	// xtrace: Print command before execution
+	if opts.Xtrace && pipeline != nil {
+		traceCmd := formatPipelineForTrace(pipeline)
+		if traceCmd != "" {
+			fmt.Fprintf(cmd.Stderr, "+ %s\n", traceCmd)
+		}
+	}
 
 	// If there's only one command, check for simple execution (non-pipeline)
 	if len(pipeline.Commands) == 1 {
@@ -183,7 +214,14 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
 
 		// Expand variables in arguments (before wildcard expansion so variables can expand to patterns)
-		args = ExpandVariablesInArgs(args)
+		// Use nounset-aware expansion to error on unset variables when -u is set
+		var varErr error
+		args, varErr = ExpandVariablesInArgsWithNounset(args)
+		if varErr != nil {
+			fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, varErr)
+			cmd.ReturnCode = 1
+			return false
+		}
 
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)
@@ -378,6 +416,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	// Set up the pipeline
 	var cmds []*exec.Cmd
 	var pipes []*io.PipeWriter
+	var builtinExitCodes []int // Track exit codes for builtins in the pipeline
 
 	// Manual background detection: check if the last command has background flag
 	if len(pipeline.Commands) > 0 {
@@ -393,7 +432,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 	for i, cmdElem := range pipeline.Commands {
 		// For subshells and command groups in pipelines, we need special handling
 		// For now, let's focus on simple commands in pipelines
-		// TODO: Handle subshells and command groups in pipelines
+		// See gosh-095d for tracking this limitation
 		if cmdElem.Simple == nil {
 			fmt.Fprintf(cmd.Stderr, "Subshells and command groups in pipelines not yet supported\n")
 			cmd.ReturnCode = 1
@@ -420,7 +459,14 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
 		// Expand variables in arguments (before wildcard expansion so variables can expand to patterns)
-		args = ExpandVariablesInArgs(args)
+		// Use nounset-aware expansion to error on unset variables when -u is set
+		var varErr error
+		args, varErr = ExpandVariablesInArgsWithNounset(args)
+		if varErr != nil {
+			fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, varErr)
+			cmd.ReturnCode = 1
+			return false
+		}
 
 		// Expand wildcards in arguments
 		args = ExpandWildcards(args)
@@ -492,8 +538,9 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				return false
 			}
 
-			// Propagate return code
+			// Propagate return code and track for pipefail
 			cmd.ReturnCode = tmpCmd.ReturnCode
+			builtinExitCodes = append(builtinExitCodes, tmpCmd.ReturnCode)
 
 			// If this is not the last command, set up the output for the next command
 			if i < len(pipeline.Commands)-1 {
@@ -527,8 +574,18 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		}
 	}
 
-	// If no external commands in the pipeline, we're done
+	// If no external commands in the pipeline, apply pipefail logic for builtins only
 	if len(cmds) == 0 {
+		if len(builtinExitCodes) > 0 && opts.Pipefail {
+			// With pipefail, return the rightmost non-zero exit code
+			cmd.ReturnCode = 0
+			for _, code := range builtinExitCodes {
+				if code != 0 {
+					cmd.ReturnCode = code
+				}
+			}
+		}
+		// Without pipefail, cmd.ReturnCode is already set to the last builtin's exit code
 		return cmd.ReturnCode == 0
 	}
 
@@ -626,15 +683,48 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 		outputFile.Close()
 	}
 
-	// Set return code to the exit code of the last command in the pipeline
-	// This is standard bash behavior (unless pipefail is set, which we haven't implemented)
-	if len(exitCodes) > 0 {
-		cmd.ReturnCode = exitCodes[len(exitCodes)-1]
+	// Combine all exit codes: builtins first, then external commands
+	allExitCodes := append(builtinExitCodes, exitCodes...)
+
+	// Set return code based on pipefail option
+	if len(allExitCodes) > 0 {
+		if opts.Pipefail {
+			// With pipefail, return the rightmost non-zero exit code, or 0 if all succeeded
+			cmd.ReturnCode = 0
+			for _, code := range allExitCodes {
+				if code != 0 {
+					cmd.ReturnCode = code
+				}
+			}
+		} else {
+			// Standard behavior: return exit code of the last command
+			cmd.ReturnCode = allExitCodes[len(allExitCodes)-1]
+		}
 	} else {
 		cmd.ReturnCode = 0
 	}
 
 	return cmd.ReturnCode == 0
+}
+
+// formatPipelineForTrace formats a pipeline for xtrace output
+func formatPipelineForTrace(pipeline *parser.Pipeline) string {
+	if pipeline == nil {
+		return ""
+	}
+
+	var parts []string
+	for _, cmdElem := range pipeline.Commands {
+		if cmdElem.Simple != nil {
+			parts = append(parts, strings.Join(cmdElem.Simple.Parts, " "))
+		} else if cmdElem.Subshell != nil {
+			parts = append(parts, "( ... )")
+		} else if cmdElem.CommandGroup != nil {
+			parts = append(parts, "{ ... }")
+		}
+	}
+
+	return strings.Join(parts, " | ")
 }
 
 // findBalancedParens finds all balanced parentheses expressions in a string

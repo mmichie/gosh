@@ -56,6 +56,10 @@ func init() {
 	builtins["type"] = typeCommand
 	builtins["which"] = whichCommand
 	builtins["command"] = commandCommand
+
+	// Shell options
+	builtins["set"] = setCommand
+	builtins["shopt"] = shoptCommand
 }
 
 // Helper function to extract Parts from a CommandElement
@@ -281,8 +285,24 @@ func help(cmd *Command) error {
   prompt      - Set shell prompt
   pushd       - Push directory onto stack and change to it
   pwd         - Print working directory
+  set         - Set shell options and positional parameters
+  shopt       - Set bash-specific shell options
   true        - Return success status
   unalias     - Remove command aliases
+
+Shell Options (set):
+  set -e      - Exit immediately on command failure (errexit)
+  set -u      - Error on unset variables (nounset)
+  set -x      - Print commands before execution (xtrace)
+  set -o opt  - Enable named option (errexit, nounset, pipefail, etc.)
+  set +o opt  - Disable named option
+  set -       - Clear all positional parameters
+  set -- args - Set positional parameters
+
+Shell Options (shopt):
+  shopt -s opt - Enable option
+  shopt -u opt - Disable option
+  shopt -p     - Print in reusable format
 
 Directory Navigation:
   pushd <dir> - Push current directory onto stack and change to <dir>
@@ -294,7 +314,7 @@ Directory Navigation:
   dirs -v     - Display with indices
   dirs -p     - Display one per line
   dirs -c     - Clear directory stack
-  
+
   CDPATH: Set CDPATH environment variable to a colon-separated list of
           directories to search when using cd with a relative path.
 `
@@ -939,5 +959,285 @@ func dirs(cmd *Command) error {
 func printDirStack(cmd *Command, gs *GlobalState) error {
 	stack := gs.GetDirStack()
 	fmt.Fprintln(cmd.Stdout, strings.Join(stack, " "))
+	return nil
+}
+
+// setCommand implements the set builtin for shell options
+// Usage: set [-euvxaC] [+euvxaC] [-o option] [+o option] [--] [args...]
+func setCommand(cmd *Command) error {
+	gs := GetGlobalState()
+
+	// Get command arguments
+	var args []string
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		parts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+		if len(parts) > 1 {
+			args = parts[1:]
+		}
+	}
+
+	// If no arguments, display all shell options
+	if len(args) == 0 {
+		return printAllOptions(cmd, gs)
+	}
+
+	// Process arguments
+	i := 0
+	for i < len(args) {
+		arg := args[i]
+
+		// Handle -o and +o (named options)
+		if arg == "-o" || arg == "+o" {
+			enable := arg == "-o"
+			i++
+			if i >= len(args) {
+				// -o or +o without argument: print options in a reusable format
+				return printNamedOptions(cmd, gs, enable)
+			}
+			optName := args[i]
+			if err := gs.SetOption(optName, enable); err != nil {
+				return fmt.Errorf("set: %v", err)
+			}
+			i++
+			continue
+		}
+
+		// Handle -- (end of options, rest are positional parameters)
+		if arg == "--" {
+			// Set positional parameters from remaining args
+			gs.SetPositionalParams(args[i+1:])
+			return nil
+		}
+
+		// Handle - (reset positional parameters to empty)
+		if arg == "-" {
+			gs.SetPositionalParams([]string{})
+			return nil
+		}
+
+		// Handle short options like -e, -u, -x or +e, +u, +x
+		if strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "+") {
+			enable := strings.HasPrefix(arg, "-")
+			flags := arg[1:] // Skip the - or +
+
+			for _, flag := range flags {
+				switch flag {
+				case 'e':
+					gs.SetOption("errexit", enable)
+				case 'u':
+					gs.SetOption("nounset", enable)
+				case 'x':
+					gs.SetOption("xtrace", enable)
+				case 'v':
+					gs.SetOption("verbose", enable)
+				case 'C':
+					gs.SetOption("noclobber", enable)
+				case 'a':
+					gs.SetOption("allexport", enable)
+				default:
+					return fmt.Errorf("set: -%c: invalid option", flag)
+				}
+			}
+			i++
+			continue
+		}
+
+		// If we get here with no more options, treat rest as positional parameters
+		gs.SetPositionalParams(args[i:])
+		return nil
+	}
+
+	return nil
+}
+
+// printAllOptions prints all shell options in bash's format
+func printAllOptions(cmd *Command, gs *GlobalState) error {
+	opts := gs.GetOptions()
+
+	// Print variables in environment (like bash does with just "set")
+	for _, env := range os.Environ() {
+		fmt.Fprintln(cmd.Stdout, env)
+	}
+
+	// Print positional parameters
+	params := gs.GetPositionalParams()
+	for i, param := range params {
+		fmt.Fprintf(cmd.Stdout, "$%d=%s\n", i+1, param)
+	}
+
+	// Print options
+	fmt.Fprintln(cmd.Stdout, "")
+	fmt.Fprintln(cmd.Stdout, "Shell options:")
+	fmt.Fprintf(cmd.Stdout, "errexit\t\t%s\n", boolToOnOff(opts.Errexit))
+	fmt.Fprintf(cmd.Stdout, "nounset\t\t%s\n", boolToOnOff(opts.Nounset))
+	fmt.Fprintf(cmd.Stdout, "xtrace\t\t%s\n", boolToOnOff(opts.Xtrace))
+	fmt.Fprintf(cmd.Stdout, "pipefail\t%s\n", boolToOnOff(opts.Pipefail))
+	fmt.Fprintf(cmd.Stdout, "verbose\t\t%s\n", boolToOnOff(opts.Verbose))
+	fmt.Fprintf(cmd.Stdout, "noclobber\t%s\n", boolToOnOff(opts.Noclobber))
+	fmt.Fprintf(cmd.Stdout, "allexport\t%s\n", boolToOnOff(opts.Allexport))
+
+	return nil
+}
+
+// printNamedOptions prints options in a reusable format
+func printNamedOptions(cmd *Command, gs *GlobalState, showEnabled bool) error {
+	opts := gs.GetOptions()
+
+	// Print all options with their current state
+	printOption := func(name string, enabled bool) {
+		if showEnabled {
+			// -o format: show which are set
+			state := "off"
+			if enabled {
+				state = "on"
+			}
+			fmt.Fprintf(cmd.Stdout, "%-15s %s\n", name, state)
+		} else {
+			// +o format: show as set commands that can be sourced
+			prefix := "-o"
+			if !enabled {
+				prefix = "+o"
+			}
+			fmt.Fprintf(cmd.Stdout, "set %s %s\n", prefix, name)
+		}
+	}
+
+	printOption("errexit", opts.Errexit)
+	printOption("nounset", opts.Nounset)
+	printOption("xtrace", opts.Xtrace)
+	printOption("pipefail", opts.Pipefail)
+	printOption("verbose", opts.Verbose)
+	printOption("noclobber", opts.Noclobber)
+	printOption("allexport", opts.Allexport)
+
+	return nil
+}
+
+func boolToOnOff(b bool) string {
+	if b {
+		return "on"
+	}
+	return "off"
+}
+
+// shoptCommand implements bash-specific shell options
+// Usage: shopt [-pqsu] [optname ...]
+func shoptCommand(cmd *Command) error {
+	gs := GetGlobalState()
+
+	// Get command arguments
+	var args []string
+	if len(cmd.Command.LogicalBlocks) > 0 &&
+		cmd.Command.LogicalBlocks[0].FirstPipeline != nil &&
+		len(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands) > 0 {
+		parts := getCommandParts(cmd.Command.LogicalBlocks[0].FirstPipeline.Commands[0])
+		if len(parts) > 1 {
+			args = parts[1:]
+		}
+	}
+
+	// Parse options
+	var setOpt, unsetOpt, printOpt, quietOpt bool
+	var optNames []string
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			for _, flag := range arg[1:] {
+				switch flag {
+				case 's':
+					setOpt = true
+				case 'u':
+					unsetOpt = true
+				case 'p':
+					printOpt = true
+				case 'q':
+					quietOpt = true
+				default:
+					return fmt.Errorf("shopt: -%c: invalid option", flag)
+				}
+			}
+		} else {
+			optNames = append(optNames, arg)
+		}
+	}
+
+	// Validate mutually exclusive options
+	if setOpt && unsetOpt {
+		return fmt.Errorf("shopt: cannot set and unset shell options simultaneously")
+	}
+
+	// If setting or unsetting specific options
+	if setOpt || unsetOpt {
+		if len(optNames) == 0 {
+			// -s or -u without names: list options with that state
+			return printShoptOptions(cmd, gs, setOpt, quietOpt)
+		}
+		for _, name := range optNames {
+			if err := gs.SetOption(name, setOpt); err != nil {
+				// shopt has different option names, map them
+				switch name {
+				case "pipefail":
+					gs.SetOption("pipefail", setOpt)
+				default:
+					return fmt.Errorf("shopt: %s: invalid shell option name", name)
+				}
+			}
+		}
+		return nil
+	}
+
+	// If querying specific options
+	if len(optNames) > 0 {
+		allSet := true
+		for _, name := range optNames {
+			val, err := gs.GetOption(name)
+			if err != nil {
+				return fmt.Errorf("shopt: %s: invalid shell option name", name)
+			}
+			if !quietOpt && !printOpt {
+				fmt.Fprintf(cmd.Stdout, "%-15s %s\n", name, boolToOnOff(val))
+			} else if printOpt {
+				prefix := "-s"
+				if !val {
+					prefix = "-u"
+				}
+				fmt.Fprintf(cmd.Stdout, "shopt %s %s\n", prefix, name)
+			}
+			if !val {
+				allSet = false
+			}
+		}
+		if !allSet {
+			cmd.ReturnCode = 1
+		}
+		return nil
+	}
+
+	// Default: print all shopt options
+	return printShoptOptions(cmd, gs, false, quietOpt)
+}
+
+// printShoptOptions prints shopt-style options
+func printShoptOptions(cmd *Command, gs *GlobalState, onlyEnabled bool, quiet bool) error {
+	if quiet {
+		return nil
+	}
+
+	opts := gs.GetOptions()
+
+	printOpt := func(name string, enabled bool) {
+		if !onlyEnabled || enabled {
+			fmt.Fprintf(cmd.Stdout, "%-15s %s\n", name, boolToOnOff(enabled))
+		}
+	}
+
+	// Shopt typically shows different options than set, but we'll show
+	// the ones we support that make sense for shopt
+	printOpt("pipefail", opts.Pipefail)
+	printOpt("noclobber", opts.Noclobber)
+
 	return nil
 }

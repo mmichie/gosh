@@ -4,20 +4,33 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
+// ShellOptions contains all shell option flags (set -e, -u, -x, -o pipefail, etc.)
+type ShellOptions struct {
+	Errexit  bool // -e: Exit immediately if a command exits with non-zero status
+	Nounset  bool // -u: Treat unset variables as an error
+	Xtrace   bool // -x: Print commands and their arguments as they are executed
+	Pipefail bool // -o pipefail: Return exit status of rightmost failed command in pipeline
+	Verbose  bool // -v: Print shell input lines as they are read
+	Noclobber bool // -C: Don't overwrite existing files with >
+	Allexport bool // -a: Export all variables assigned to
+}
+
 type GlobalState struct {
 	CWD                string
 	PreviousDir        string
-	DirStack           []string  // Directory stack for pushd/popd
-	ShellPID           int       // $$ - Current shell PID
-	LastBackgroundPID  int       // $! - Last background process PID
-	LastExitStatus     int       // $? - Exit status of last command
-	StartTime          time.Time // For calculating $SECONDS
-	ScriptName         string    // $0 - Script/shell name
-	PositionalParams   []string  // $1, $2, ... - Positional parameters
+	DirStack           []string      // Directory stack for pushd/popd
+	ShellPID           int           // $$ - Current shell PID
+	LastBackgroundPID  int           // $! - Last background process PID
+	LastExitStatus     int           // $? - Exit status of last command
+	StartTime          time.Time     // For calculating $SECONDS
+	ScriptName         string        // $0 - Script/shell name
+	PositionalParams   []string      // $1, $2, ... - Positional parameters
+	Options            ShellOptions  // Shell options (set -e, -u, etc.)
 	mu                 sync.RWMutex
 }
 
@@ -317,4 +330,90 @@ func (gs *GlobalState) ShiftPositionalParams(n int) error {
 
 	gs.PositionalParams = gs.PositionalParams[n:]
 	return nil
+}
+
+// GetOptions returns a copy of the shell options
+func (gs *GlobalState) GetOptions() ShellOptions {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	return gs.Options
+}
+
+// SetOption sets a single shell option by name
+func (gs *GlobalState) SetOption(name string, value bool) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+
+	switch name {
+	case "e", "errexit":
+		gs.Options.Errexit = value
+	case "u", "nounset":
+		gs.Options.Nounset = value
+	case "x", "xtrace":
+		gs.Options.Xtrace = value
+	case "pipefail":
+		gs.Options.Pipefail = value
+	case "v", "verbose":
+		gs.Options.Verbose = value
+	case "C", "noclobber":
+		gs.Options.Noclobber = value
+	case "a", "allexport":
+		gs.Options.Allexport = value
+	default:
+		return fmt.Errorf("unknown option: %s", name)
+	}
+	return nil
+}
+
+// GetOption gets a single shell option by name
+func (gs *GlobalState) GetOption(name string) (bool, error) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+
+	switch name {
+	case "e", "errexit":
+		return gs.Options.Errexit, nil
+	case "u", "nounset":
+		return gs.Options.Nounset, nil
+	case "x", "xtrace":
+		return gs.Options.Xtrace, nil
+	case "pipefail":
+		return gs.Options.Pipefail, nil
+	case "v", "verbose":
+		return gs.Options.Verbose, nil
+	case "C", "noclobber":
+		return gs.Options.Noclobber, nil
+	case "a", "allexport":
+		return gs.Options.Allexport, nil
+	default:
+		return false, fmt.Errorf("unknown option: %s", name)
+	}
+}
+
+// GetOptionsString returns the current shell flags in $- format
+func (gs *GlobalState) GetOptionsString() string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+
+	var flags strings.Builder
+	if gs.Options.Errexit {
+		flags.WriteByte('e')
+	}
+	if gs.Options.Nounset {
+		flags.WriteByte('u')
+	}
+	if gs.Options.Xtrace {
+		flags.WriteByte('x')
+	}
+	if gs.Options.Verbose {
+		flags.WriteByte('v')
+	}
+	if gs.Options.Noclobber {
+		flags.WriteByte('C')
+	}
+	if gs.Options.Allexport {
+		flags.WriteByte('a')
+	}
+	// Note: pipefail doesn't have a single-letter flag
+	return flags.String()
 }
