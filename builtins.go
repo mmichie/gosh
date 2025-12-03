@@ -41,6 +41,7 @@ func init() {
 	builtins["false"] = falseCommand
 	builtins["test"] = testCommand
 	builtins["["] = testCommand
+	builtins["[["] = extendedTestCommand
 
 	// User interaction
 	builtins["read"] = readCommand
@@ -294,6 +295,7 @@ func help(cmd *Command) error {
   exit        - Exit the shell
   export      - Set environment variables
   false       - Return failure status
+  [[          - Extended test with pattern and regex matching
   fg          - Bring job to foreground
   help        - Display this help message
   history     - Display command history

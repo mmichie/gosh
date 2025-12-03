@@ -107,9 +107,13 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// Store here-document data for later processing
 	var hereDocs HereDocMap
 
+	// Preprocess extended test [[ ... ]] to quote shell operators
+	// This must happen before here-doc processing since [[ ]] can contain special chars
+	processedInput := PreprocessExtendedTest(input)
+
 	// Preprocess for here-documents
 	// This extracts here-doc content and replaces it with input redirection placeholders
-	processedInput, hereDocs, err := PreprocessHereDoc(input)
+	processedInput, hereDocs, err := PreprocessHereDoc(processedInput)
 	if err != nil {
 		return nil, fmt.Errorf("here-document error: %v", err)
 	}

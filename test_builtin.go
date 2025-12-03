@@ -58,10 +58,10 @@ func extractTestArgs(cmd *Command) []string {
 		return []string{}
 	}
 
-	// For [ command, we need to keep it to detect and validate closing ]
+	// For [ and [[ commands, we need to keep them to detect and validate closing ] or ]]
 	// For test command, we skip the command name
-	if len(parts) > 0 && parts[0] == "[" {
-		return parts // Keep [ for validation
+	if len(parts) > 0 && (parts[0] == "[" || parts[0] == "[[") {
+		return parts // Keep [ or [[ for validation
 	}
 
 	// For test command, skip the command name
