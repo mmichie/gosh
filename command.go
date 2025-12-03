@@ -42,6 +42,8 @@ func GetM28Interpreter() *m28adapter.Interpreter {
 	if m28Interpreter == nil {
 		m28Interpreter = m28adapter.NewInterpreter()
 		registerGoshM28Functions()
+		// Register record stream functions for Phase 2 M28 stream processing
+		m28Interpreter.RegisterRecordStreamFunctions()
 	}
 	return m28Interpreter
 }

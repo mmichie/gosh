@@ -265,3 +265,282 @@ func DefaultShellExecutor(command string) (stdout string, stderr string, exitCod
 
 	return stdout, stderr, exitCode, err
 }
+
+// RegisterRecordStreamFunctions registers M28 functions for record stream processing.
+// These functions enable Lisp-based manipulation of record streams in gosh pipelines.
+func (i *Interpreter) RegisterRecordStreamFunctions() {
+	i.mutex.Lock()
+	defer i.mutex.Unlock()
+
+	// get-field: Get a field value from a record (dict)
+	// (get-field record "fieldname")
+	// (get-field record "nested/path") - supports nested access with /
+	i.engine.DefineFunction("get-field", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("get-field: expected 2 arguments (record, field), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("get-field: first argument must be a dict, got %T", args[0])
+		}
+
+		fieldName, ok := args[1].(core.StringValue)
+		if !ok {
+			return nil, fmt.Errorf("get-field: second argument must be a string, got %T", args[1])
+		}
+
+		// Support nested field access with /
+		parts := strings.Split(string(fieldName), "/")
+		var current core.Value = dict
+
+		for _, part := range parts {
+			d, ok := current.(*core.DictValue)
+			if !ok {
+				return nil, nil
+			}
+			val, found := d.Get(part)
+			if !found {
+				return nil, nil
+			}
+			current = val
+		}
+
+		return current, nil
+	})
+
+	// set-field: Set a field value in a record, returning a new record
+	// (set-field record "fieldname" value)
+	i.engine.DefineFunction("set-field", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 3 {
+			return nil, fmt.Errorf("set-field: expected 3 arguments (record, field, value), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("set-field: first argument must be a dict, got %T", args[0])
+		}
+
+		fieldName, ok := args[1].(core.StringValue)
+		if !ok {
+			return nil, fmt.Errorf("set-field: second argument must be a string, got %T", args[1])
+		}
+
+		// Create a copy of the dict with the new field
+		newDict := core.NewDict()
+
+		// Copy existing fields using Keys() and Get()
+		for _, key := range dict.Keys() {
+			val, _ := dict.Get(key)
+			newDict.Set(key, val)
+		}
+
+		// Set the new/updated field
+		newDict.Set(string(fieldName), args[2])
+
+		return newDict, nil
+	})
+
+	// make-record: Create a new record (dict) from key-value pairs
+	// (make-record "key1" val1 "key2" val2 ...)
+	i.engine.DefineFunction("make-record", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args)%2 != 0 {
+			return nil, fmt.Errorf("make-record: expected even number of arguments (key-value pairs), got %d", len(args))
+		}
+
+		result := core.NewDict()
+		for i := 0; i < len(args); i += 2 {
+			key, ok := args[i].(core.StringValue)
+			if !ok {
+				return nil, fmt.Errorf("make-record: key at position %d must be a string, got %T", i, args[i])
+			}
+			result.Set(string(key), args[i+1])
+		}
+
+		return result, nil
+	})
+
+	// record-keys: Get all keys from a record as a list
+	// (record-keys record)
+	i.engine.DefineFunction("record-keys", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 1 {
+			return nil, fmt.Errorf("record-keys: expected 1 argument (record), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-keys: argument must be a dict, got %T", args[0])
+		}
+
+		result := core.NewList()
+		for _, key := range dict.Keys() {
+			result.Append(core.StringValue(key))
+		}
+
+		return result, nil
+	})
+
+	// record-values: Get all values from a record as a list
+	// (record-values record)
+	i.engine.DefineFunction("record-values", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 1 {
+			return nil, fmt.Errorf("record-values: expected 1 argument (record), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-values: argument must be a dict, got %T", args[0])
+		}
+
+		result := core.NewList()
+		for _, key := range dict.Keys() {
+			val, _ := dict.Get(key)
+			result.Append(val)
+		}
+
+		return result, nil
+	})
+
+	// record-has: Check if a record has a field
+	// (record-has record "fieldname")
+	i.engine.DefineFunction("record-has", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("record-has: expected 2 arguments (record, field), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-has: first argument must be a dict, got %T", args[0])
+		}
+
+		fieldName, ok := args[1].(core.StringValue)
+		if !ok {
+			return nil, fmt.Errorf("record-has: second argument must be a string, got %T", args[1])
+		}
+
+		_, found := dict.Get(string(fieldName))
+		return core.BoolValue(found), nil
+	})
+
+	// record-remove: Remove a field from a record, returning a new record
+	// (record-remove record "fieldname")
+	i.engine.DefineFunction("record-remove", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) != 2 {
+			return nil, fmt.Errorf("record-remove: expected 2 arguments (record, field), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-remove: first argument must be a dict, got %T", args[0])
+		}
+
+		fieldName, ok := args[1].(core.StringValue)
+		if !ok {
+			return nil, fmt.Errorf("record-remove: second argument must be a string, got %T", args[1])
+		}
+
+		fieldToRemove := string(fieldName)
+		newDict := core.NewDict()
+
+		for _, key := range dict.Keys() {
+			if key != fieldToRemove {
+				val, _ := dict.Get(key)
+				newDict.Set(key, val)
+			}
+		}
+
+		return newDict, nil
+	})
+
+	// record-merge: Merge two or more records into one
+	// (record-merge record1 record2 ...)
+	i.engine.DefineFunction("record-merge", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("record-merge: expected at least 2 arguments, got %d", len(args))
+		}
+
+		result := core.NewDict()
+
+		for i, arg := range args {
+			dict, ok := arg.(*core.DictValue)
+			if !ok {
+				return nil, fmt.Errorf("record-merge: argument %d must be a dict, got %T", i, arg)
+			}
+
+			for _, key := range dict.Keys() {
+				val, _ := dict.Get(key)
+				result.Set(key, val)
+			}
+		}
+
+		return result, nil
+	})
+
+	// record-select: Select specific fields from a record
+	// (record-select record "field1" "field2" ...)
+	i.engine.DefineFunction("record-select", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) < 2 {
+			return nil, fmt.Errorf("record-select: expected at least 2 arguments (record, field...), got %d", len(args))
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-select: first argument must be a dict, got %T", args[0])
+		}
+
+		// Build set of fields to select
+		selectFields := make(map[string]bool)
+		for i := 1; i < len(args); i++ {
+			fieldName, ok := args[i].(core.StringValue)
+			if !ok {
+				return nil, fmt.Errorf("record-select: field name at position %d must be a string, got %T", i, args[i])
+			}
+			selectFields[string(fieldName)] = true
+		}
+
+		result := core.NewDict()
+		for _, key := range dict.Keys() {
+			if selectFields[key] {
+				val, _ := dict.Get(key)
+				result.Set(key, val)
+			}
+		}
+
+		return result, nil
+	})
+
+	// record-update: Update multiple fields in a record at once
+	// (record-update record "field1" val1 "field2" val2 ...)
+	i.engine.DefineFunction("record-update", func(args []core.Value, ctx *core.Context) (core.Value, error) {
+		if len(args) < 1 {
+			return nil, fmt.Errorf("record-update: expected at least 1 argument (record), got %d", len(args))
+		}
+
+		if (len(args)-1)%2 != 0 {
+			return nil, fmt.Errorf("record-update: expected record followed by key-value pairs, got odd number of update args")
+		}
+
+		dict, ok := args[0].(*core.DictValue)
+		if !ok {
+			return nil, fmt.Errorf("record-update: first argument must be a dict, got %T", args[0])
+		}
+
+		// Create a copy of the dict
+		result := core.NewDict()
+		for _, key := range dict.Keys() {
+			val, _ := dict.Get(key)
+			result.Set(key, val)
+		}
+
+		// Apply updates
+		for i := 1; i < len(args); i += 2 {
+			key, ok := args[i].(core.StringValue)
+			if !ok {
+				return nil, fmt.Errorf("record-update: key at position %d must be a string, got %T", i, args[i])
+			}
+			result.Set(string(key), args[i+1])
+		}
+
+		return result, nil
+	})
+}
