@@ -26,7 +26,7 @@ func TestTypeCommand(t *testing.T) {
 		},
 		{
 			name:         "type for external command",
-			input:        "type ls",
+			input:        "type cat",
 			wantContains: "/",
 			wantCode:     0,
 		},
@@ -96,7 +96,7 @@ func TestWhichCommand(t *testing.T) {
 	}{
 		{
 			name:         "which for external command",
-			input:        "which ls",
+			input:        "which cat",
 			wantContains: "/",
 			wantCode:     0,
 		},
@@ -147,7 +147,7 @@ func TestCommandWithVFlag(t *testing.T) {
 		},
 		{
 			name:         "command -v for external",
-			input:        "command -v ls",
+			input:        "command -v cat",
 			wantContains: "/",
 			wantCode:     0,
 		},
