@@ -1,0 +1,31 @@
+# SQLite databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Daemon runtime files
+daemon.lock
+daemon.log
+daemon.pid
+bd.sock
+
+# Dolt server runtime files
+dolt-server.lock
+dolt-server.log
+dolt-server.pid
+dolt-server.port
+
+# Dolt database directory (runtime state, not tracked in git)
+dolt/
+
+# Per-machine bd version marker
+.local_version
+
+# Legacy database files
+db.sqlite
+bd.db
+
+# Keep JSONL exports and config (source of truth for git)
+!*.jsonl
+!config.json
