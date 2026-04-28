@@ -8,21 +8,33 @@ import (
 
 // MockEnvProvider implements EnvProvider for testing
 type MockEnvProvider struct {
-	mu            sync.Mutex
-	cwd           string
-	previousDir   string
-	lastExitCode  int
-	shellPID      int
-	lastBgPID     int
-	dirStack      []string
+	mu           sync.Mutex
+	cwd          string
+	previousDir  string
+	lastExitCode int
+	shellPID     int
+	lastBgPID    int
+	dirStack     []string
 }
 
-func (m *MockEnvProvider) GetCWD() string             { m.mu.Lock(); defer m.mu.Unlock(); return m.cwd }
-func (m *MockEnvProvider) GetPreviousDir() string     { m.mu.Lock(); defer m.mu.Unlock(); return m.previousDir }
-func (m *MockEnvProvider) GetLastExitStatus() int     { m.mu.Lock(); defer m.mu.Unlock(); return m.lastExitCode }
-func (m *MockEnvProvider) GetShellPID() int           { m.mu.Lock(); defer m.mu.Unlock(); return m.shellPID }
-func (m *MockEnvProvider) GetLastBackgroundPID() int  { m.mu.Lock(); defer m.mu.Unlock(); return m.lastBgPID }
-func (m *MockEnvProvider) GetDirStack() []string      { m.mu.Lock(); defer m.mu.Unlock(); return m.dirStack }
+func (m *MockEnvProvider) GetCWD() string { m.mu.Lock(); defer m.mu.Unlock(); return m.cwd }
+func (m *MockEnvProvider) GetPreviousDir() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.previousDir
+}
+func (m *MockEnvProvider) GetLastExitStatus() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastExitCode
+}
+func (m *MockEnvProvider) GetShellPID() int { m.mu.Lock(); defer m.mu.Unlock(); return m.shellPID }
+func (m *MockEnvProvider) GetLastBackgroundPID() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastBgPID
+}
+func (m *MockEnvProvider) GetDirStack() []string { m.mu.Lock(); defer m.mu.Unlock(); return m.dirStack }
 
 // Test singleton interpreter to avoid M28 registration issues
 var (
@@ -53,12 +65,12 @@ func getTestInterpreter() *Interpreter {
 
 func TestDefaultShellExecutor(t *testing.T) {
 	tests := []struct {
-		name           string
-		command        string
-		wantStdout     string
-		wantStderr     string
-		wantExitCode   int
-		wantErr        bool
+		name         string
+		command      string
+		wantStdout   string
+		wantStderr   string
+		wantExitCode int
+		wantErr      bool
 	}{
 		{
 			name:         "simple echo",

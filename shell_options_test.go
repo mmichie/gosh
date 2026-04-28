@@ -206,10 +206,10 @@ func TestPipefail(t *testing.T) {
 	defer resetShellOptions()
 
 	tests := []struct {
-		name       string
-		pipefail   bool
-		input      string
-		wantCode   int
+		name     string
+		pipefail bool
+		input    string
+		wantCode int
 	}{
 		{
 			name:     "without pipefail, last command exit code",

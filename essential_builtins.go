@@ -399,7 +399,7 @@ func printReadonlyVars(cmd *Command, gs *GlobalState) error {
 // Usage: trap [-lp] [[arg] signal_spec ...]
 // -l: List signal names
 // -p: Print trap commands
-// trap '' signal: Ignore signal
+// trap ” signal: Ignore signal
 // trap - signal: Reset to default
 // trap command signal: Execute command on signal
 func trapCommand(cmd *Command) error {

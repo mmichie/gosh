@@ -86,12 +86,12 @@ func printfCommand(cmd *Command) error {
 
 // formatSpec represents a parsed format specifier
 type formatSpec struct {
-	full      string // The full format specifier (e.g., "%5.2f")
-	flags     string // Flags (-, +, space, 0, #)
-	width     int    // Field width
-	precision int    // Precision
+	full         string // The full format specifier (e.g., "%5.2f")
+	flags        string // Flags (-, +, space, 0, #)
+	width        int    // Field width
+	precision    int    // Precision
 	hasPrecision bool
-	specifier string // The type specifier (s, d, f, x, o, c, %)
+	specifier    string // The type specifier (s, d, f, x, o, c, %)
 }
 
 // findFormatSpecifiers finds all format specifiers in the format string

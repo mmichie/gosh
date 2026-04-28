@@ -62,10 +62,10 @@ func init() {
 	builtins["shopt"] = shoptCommand
 
 	// Essential builtins
-	builtins[":"] = colonCommand    // Null command
+	builtins[":"] = colonCommand // Null command
 	builtins["unset"] = unsetCommand
 	builtins["source"] = sourceCommand
-	builtins["."] = sourceCommand   // . is an alias for source
+	builtins["."] = sourceCommand // . is an alias for source
 	builtins["eval"] = evalCommand
 	builtins["exec"] = execCommand
 	builtins["readonly"] = readonlyCommand

@@ -40,23 +40,23 @@ type VariableAttributes struct {
 }
 
 type GlobalState struct {
-	CWD                string
-	PreviousDir        string
-	DirStack           []string                       // Directory stack for pushd/popd
-	ShellPID           int                            // $$ - Current shell PID
-	LastBackgroundPID  int                            // $! - Last background process PID
-	LastExitStatus     int                            // $? - Exit status of last command
-	StartTime          time.Time                      // For calculating $SECONDS
-	ScriptName         string                         // $0 - Script/shell name
-	PositionalParams   []string                       // $1, $2, ... - Positional parameters
-	Options            ShellOptions                   // Shell options (set -e, -u, etc.)
-	ReadonlyVars       map[string]bool                // Variables marked as readonly
-	SignalTraps        map[string]string              // Signal handlers: signal name -> command
-	ScopeStack         []VariableScope                // Stack of variable scopes for functions
-	VarAttributes      map[string]*VariableAttributes // Variable attributes from declare
-	InFunction         bool                           // Whether we're currently in a function
-	FunctionDepth      int                            // Nesting depth of function calls
-	mu                 sync.RWMutex
+	CWD               string
+	PreviousDir       string
+	DirStack          []string                       // Directory stack for pushd/popd
+	ShellPID          int                            // $$ - Current shell PID
+	LastBackgroundPID int                            // $! - Last background process PID
+	LastExitStatus    int                            // $? - Exit status of last command
+	StartTime         time.Time                      // For calculating $SECONDS
+	ScriptName        string                         // $0 - Script/shell name
+	PositionalParams  []string                       // $1, $2, ... - Positional parameters
+	Options           ShellOptions                   // Shell options (set -e, -u, etc.)
+	ReadonlyVars      map[string]bool                // Variables marked as readonly
+	SignalTraps       map[string]string              // Signal handlers: signal name -> command
+	ScopeStack        []VariableScope                // Stack of variable scopes for functions
+	VarAttributes     map[string]*VariableAttributes // Variable attributes from declare
+	InFunction        bool                           // Whether we're currently in a function
+	FunctionDepth     int                            // Nesting depth of function calls
+	mu                sync.RWMutex
 }
 
 var globalState *GlobalState
@@ -96,11 +96,11 @@ func GetGlobalState() *GlobalState {
 			LastBackgroundPID: 0,
 			LastExitStatus:    0,
 			StartTime:         time.Now(),
-			ScriptName:        "gosh",                              // Default shell name
-			PositionalParams:  []string{},                          // No arguments initially
+			ScriptName:        "gosh",     // Default shell name
+			PositionalParams:  []string{}, // No arguments initially
 			ReadonlyVars:      make(map[string]bool),
-			SignalTraps:       make(map[string]string),             // No traps initially
-			ScopeStack:        []VariableScope{},                   // No scopes initially
+			SignalTraps:       make(map[string]string), // No traps initially
+			ScopeStack:        []VariableScope{},       // No scopes initially
 			VarAttributes:     make(map[string]*VariableAttributes),
 			InFunction:        false,
 			FunctionDepth:     0,

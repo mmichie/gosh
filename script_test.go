@@ -88,10 +88,10 @@ echo Arg count: $#
 // TestScriptExitCode tests script exit codes
 func TestScriptExitCode(t *testing.T) {
 	tests := []struct {
-		name           string
-		scriptContent  string
-		expectedCode   int
-		args           []string
+		name          string
+		scriptContent string
+		expectedCode  int
+		args          []string
 	}{
 		{
 			name: "success exit code",

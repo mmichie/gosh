@@ -47,8 +47,8 @@ type Pipeline struct {
 
 // CommandElement represents either a subshell, command group, or simple command
 type CommandElement struct {
-	Subshell     *Subshell     `parser:"@@"`
-	CommandGroup *CommandGroup `parser:"| @@"`
+	Subshell     *Subshell      `parser:"@@"`
+	CommandGroup *CommandGroup  `parser:"| @@"`
 	Simple       *SimpleCommand `parser:"| @@"`
 }
 

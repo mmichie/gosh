@@ -249,7 +249,7 @@ func TestTestCommandEdgeCases(t *testing.T) {
 		// Edge cases
 		// In POSIX test, a single argument is tested for non-emptiness
 		{"single arg treated as string", []string{"test", "-invalid"}, 0}, // "-invalid" is non-empty, returns true
-		{"single arg -f is string", []string{"test", "-f"}, 0},             // "-f" is non-empty, returns true
+		{"single arg -f is string", []string{"test", "-f"}, 0},            // "-f" is non-empty, returns true
 		{"too many arguments no operators", []string{"test", "a", "b", "c", "d"}, 2},
 	}
 

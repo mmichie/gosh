@@ -333,20 +333,20 @@ func TestReadonlyCommand(t *testing.T) {
 	resetGlobalStateForTesting()
 
 	tests := []struct {
-		name       string
-		setup      func()
-		input      string
-		wantErr    bool
-		checkVar   string
-		wantValue  string
-		cleanup    func()
+		name      string
+		setup     func()
+		input     string
+		wantErr   bool
+		checkVar  string
+		wantValue string
+		cleanup   func()
 	}{
 		{
-			name: "readonly with value",
-			setup: func() {},
-			input: "readonly TEST_RO_VAR=readonly_value",
-			wantErr: false,
-			checkVar: "TEST_RO_VAR",
+			name:      "readonly with value",
+			setup:     func() {},
+			input:     "readonly TEST_RO_VAR=readonly_value",
+			wantErr:   false,
+			checkVar:  "TEST_RO_VAR",
 			wantValue: "readonly_value",
 			cleanup: func() {
 				// Can't unset readonly, but we can clean up global state
@@ -358,9 +358,9 @@ func TestReadonlyCommand(t *testing.T) {
 			setup: func() {
 				os.Setenv("TEST_RO_VAR2", "existing_value")
 			},
-			input: "readonly TEST_RO_VAR2",
-			wantErr: false,
-			checkVar: "TEST_RO_VAR2",
+			input:     "readonly TEST_RO_VAR2",
+			wantErr:   false,
+			checkVar:  "TEST_RO_VAR2",
 			wantValue: "existing_value",
 			cleanup: func() {
 				os.Unsetenv("TEST_RO_VAR2")
@@ -835,11 +835,11 @@ func TestDeclareCommand(t *testing.T) {
 	defer os.Unsetenv("TEST_DECLARE_VAR")
 
 	tests := []struct {
-		name       string
-		input      string
-		checkVar   string
-		wantValue  string
-		wantErr    bool
+		name      string
+		input     string
+		checkVar  string
+		wantValue string
+		wantErr   bool
 	}{
 		{
 			name:      "declare with value",

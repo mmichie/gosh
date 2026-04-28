@@ -77,10 +77,10 @@ func TestSubshellIsolation(t *testing.T) {
 	}()
 
 	tests := []struct {
-		name            string
-		input           string
-		wantCWDChanged  bool
-		description     string
+		name           string
+		input          string
+		wantCWDChanged bool
+		description    string
 	}{
 		{
 			name:           "Subshell cd doesn't affect parent",

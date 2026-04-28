@@ -8,10 +8,11 @@ import (
 // PreprocessExtendedTest preprocesses [[ ... ]] constructs to quote shell operators
 // so the parser treats them as regular words rather than shell operators.
 // This function transforms:
-//   [[ $a && $b ]] -> [[ $a '&&' $b ]]
-//   [[ $a || $b ]] -> [[ $a '||' $b ]]
-//   [[ $a < $b ]] -> [[ $a '<' $b ]]
-//   [[ ( $a ) ]] -> [[ '(' $a ')' ]]
+//
+//	[[ $a && $b ]] -> [[ $a '&&' $b ]]
+//	[[ $a || $b ]] -> [[ $a '||' $b ]]
+//	[[ $a < $b ]] -> [[ $a '<' $b ]]
+//	[[ ( $a ) ]] -> [[ '(' $a ')' ]]
 func PreprocessExtendedTest(input string) string {
 	result := strings.Builder{}
 	i := 0

@@ -27,11 +27,11 @@ func TestReadCommand(t *testing.T) {
 			wantCode: 0,
 		},
 		{
-			name:     "read with prompt",
-			cmd:      "read -p 'Enter name: ' name",
-			input:    "Bob\n",
-			wantVars: map[string]string{"name": "Bob"},
-			wantCode: 0,
+			name:       "read with prompt",
+			cmd:        "read -p 'Enter name: ' name",
+			input:      "Bob\n",
+			wantVars:   map[string]string{"name": "Bob"},
+			wantCode:   0,
 			wantPrompt: "Enter name: ",
 		},
 		{
