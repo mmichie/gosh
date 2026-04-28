@@ -270,6 +270,32 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			return true
 		}
 
+		// Extract leading NAME=VALUE assignments. With no command following,
+		// this is a standalone assignment statement; otherwise the assignments
+		// are applied as a prefix env for the command and restored afterwards.
+		assigns, remainingParts := SplitAssignments(simpleCmd.Parts)
+		if len(assigns) > 0 && len(remainingParts) == 0 {
+			if err := ApplyAssignmentsToShell(assigns); err != nil {
+				fmt.Fprintf(cmd.Stderr, "gosh: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			cmd.ReturnCode = 0
+			return true
+		}
+		var restorePrefix func()
+		if len(assigns) > 0 {
+			var err error
+			restorePrefix, err = snapshotAndApplyForCommand(assigns)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "gosh: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			}
+			defer restorePrefix()
+			simpleCmd.Parts = remainingParts
+		}
+
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, stderrRedirectType, stderrFilename, fdDupType := parser.ProcessCommand(simpleCmd)
 
 		// Expand variables in arguments (before wildcard expansion so variables can expand to patterns)
@@ -529,6 +555,16 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			continue
 		}
 
+		// Extract leading NAME=VALUE assignments. In a pipeline a bare
+		// assignment with no command is a no-op for that pipeline stage.
+		pipelineAssigns, pipelineRemaining := SplitAssignments(simpleCmd.Parts)
+		if len(pipelineAssigns) > 0 {
+			if len(pipelineRemaining) == 0 {
+				continue
+			}
+			simpleCmd.Parts = pipelineRemaining
+		}
+
 		// Process the command
 		cmdName, args, inputRedirectType, inputFilename, outputRedirectType, outputFilename, _, _, _ := parser.ProcessCommand(simpleCmd)
 
@@ -608,7 +644,20 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				JobManager: cmd.JobManager,
 			}
 
+			var restorePipelinePrefix func()
+			if len(pipelineAssigns) > 0 {
+				var perr error
+				restorePipelinePrefix, perr = snapshotAndApplyForCommand(pipelineAssigns)
+				if perr != nil {
+					fmt.Fprintf(cmd.Stderr, "gosh: %v\n", perr)
+					cmd.ReturnCode = 1
+					return false
+				}
+			}
 			err := builtin(tmpCmd)
+			if restorePipelinePrefix != nil {
+				restorePipelinePrefix()
+			}
 			if err != nil {
 				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
 				cmd.ReturnCode = 1
@@ -637,6 +686,9 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			execCmd.Dir = gs.GetCWD()
 			execCmd.Stdin = lastOutput
 			execCmd.Stderr = cmd.Stderr
+			if len(pipelineAssigns) > 0 {
+				execCmd.Env = envWithAssignments(pipelineAssigns)
+			}
 
 			// Set up stdout appropriately based on position in pipeline
 			if i < len(pipeline.Commands)-1 {
