@@ -10,86 +10,58 @@ import (
 )
 
 // ExpandSpecialVariables expands shell special variables in the given string
-// Supports: $$, $!, $?, $0-$9, ${10+}, $#, $@, $*, $PPID, $RANDOM, $SECONDS, and regular environment variables
+// Supports: $$, $!, $?, $0-$9, ${...} parameter expansion, $#, $@, $*, $PPID,
+// $RANDOM, $SECONDS, and regular environment variables. Errors from explicit
+// failure forms like ${var:?msg} are swallowed; use ExpandSpecialVariablesE
+// to surface them.
 func ExpandSpecialVariables(s string) string {
+	out, _ := ExpandSpecialVariablesE(s)
+	return out
+}
+
+// ExpandSpecialVariablesE is the error-returning variant. Parameter expansion
+// constructs like ${var:?message} report their error here.
+func ExpandSpecialVariablesE(s string) (string, error) {
+	// Brace-aware parameter expansion runs first so the operator-bearing forms
+	// (${var:-default}, ${var/foo/bar}, etc.) are resolved before any of the
+	// short-form replacements below could mangle them.
+	result, err := ExpandParameterExpansions(s)
+	if err != nil {
+		return "", err
+	}
+
 	state := GetGlobalState()
-
-	// Create a map of special variable replacements
-	replacements := make(map[string]string)
-
-	// $$ - Current shell PID
-	replacements["$$"] = strconv.Itoa(state.GetShellPID())
-
-	// $! - Last background process PID
-	replacements["$!"] = strconv.Itoa(state.GetLastBackgroundPID())
-
-	// $? - Exit status of last command
-	replacements["$?"] = strconv.Itoa(state.GetLastExitStatus())
-
-	// $# - Number of positional parameters
-	replacements["$#"] = strconv.Itoa(state.GetPositionalParamCount())
-
-	// $0 - Script name
-	replacements["$0"] = state.GetScriptName()
-
-	// $1-$9 - Positional parameters
+	replacements := map[string]string{
+		"$$":       strconv.Itoa(state.GetShellPID()),
+		"$!":       strconv.Itoa(state.GetLastBackgroundPID()),
+		"$?":       strconv.Itoa(state.GetLastExitStatus()),
+		"$#":       strconv.Itoa(state.GetPositionalParamCount()),
+		"$0":       state.GetScriptName(),
+		"$PPID":    strconv.Itoa(os.Getppid()),
+		"$RANDOM":  strconv.Itoa(rand.Intn(32768)),
+		"$SECONDS": strconv.Itoa(state.GetSeconds()),
+	}
 	for i := 1; i <= 9; i++ {
 		replacements["$"+strconv.Itoa(i)] = state.GetPositionalParam(i)
 	}
-
-	// $@ - All positional parameters as separate words
-	// Note: This is a simplified version. In a full shell, $@ behaves differently when quoted
 	params := state.GetPositionalParams()
 	replacements["$@"] = strings.Join(params, " ")
-
-	// $* - All positional parameters as single word (space-separated)
 	replacements["$*"] = strings.Join(params, " ")
 
-	// $PPID - Parent process PID
-	replacements["$PPID"] = strconv.Itoa(os.Getppid())
-
-	// $RANDOM - Random number (0-32767)
-	replacements["$RANDOM"] = strconv.Itoa(rand.Intn(32768))
-
-	// $SECONDS - Seconds since shell start
-	replacements["$SECONDS"] = strconv.Itoa(state.GetSeconds())
-
-	// Replace special variables
-	result := s
 	for varName, value := range replacements {
 		result = strings.ReplaceAll(result, varName, value)
 	}
 
-	// Expand environment variables: $VAR and ${VAR}
-	// Also handle ${10}, ${11}, etc. for positional parameters beyond $9
-	braceRe := regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*|\d+)\}`)
-	result = braceRe.ReplaceAllStringFunc(result, func(match string) string {
-		varName := match[2 : len(match)-1] // Remove ${ and }
-
-		// Check if it's a numeric positional parameter
-		if num, err := strconv.Atoi(varName); err == nil {
-			if num == 0 {
-				return state.GetScriptName()
-			}
-			return state.GetPositionalParam(num)
-		}
-
-		return os.Getenv(varName)
-	})
-
-	// Handle $VAR (but not special variables we've already handled)
 	simpleRe := regexp.MustCompile(`\$([A-Za-z_][A-Za-z0-9_]*)`)
 	result = simpleRe.ReplaceAllStringFunc(result, func(match string) string {
-		varName := match[1:] // Remove $
-		// Skip if it's a special variable we've already handled
+		varName := match[1:]
 		if varName == "PPID" || varName == "RANDOM" || varName == "SECONDS" {
-			// Already handled above, skip
 			return match
 		}
 		return os.Getenv(varName)
 	})
 
-	return result
+	return result, nil
 }
 
 // ExpandVariablesInArgs expands special variables in all arguments
