@@ -131,6 +131,11 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 		return nil, fmt.Errorf("array assignment error: %v", err)
 	}
 
+	// Expand brace patterns (`{a,b,c}`, `{1..5}`, etc.) before the parser
+	// runs. This is purely syntactic — variables and command substitutions
+	// inside braces are left intact for later passes to handle.
+	processedInput = ExpandBraces(processedInput)
+
 	// Rewrite ((expr)) command form to `let "expr"` so the existing parser
 	// can handle it without grammar changes.
 	processedInput = PreprocessArithmeticCommand(processedInput)
