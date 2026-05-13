@@ -960,3 +960,30 @@ func printAllDeclaredVars(cmd *Command, gs *GlobalState) error {
 func typesetCommand(cmd *Command) error {
 	return declareCommand(cmd)
 }
+
+// letCommand evaluates each argument as an arithmetic expression. The exit
+// status is 0 when the last expression evaluates to a non-zero value, 1
+// otherwise — the inverse of the natural reading, but matching bash so that
+// `let x=0` returns failure and short-circuit chains behave as expected.
+func letCommand(cmd *Command) error {
+	args := getBuiltinArgs(cmd)
+	if len(args) == 0 {
+		cmd.ReturnCode = 1
+		return fmt.Errorf("let: expression expected")
+	}
+	var last int64
+	for _, arg := range args {
+		v, err := EvaluateArithmetic(stripQuotes(arg))
+		if err != nil {
+			cmd.ReturnCode = 1
+			return err
+		}
+		last = v
+	}
+	if last == 0 {
+		cmd.ReturnCode = 1
+	} else {
+		cmd.ReturnCode = 0
+	}
+	return nil
+}

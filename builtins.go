@@ -74,6 +74,7 @@ func init() {
 	builtins["local"] = localCommand
 	builtins["declare"] = declareCommand
 	builtins["typeset"] = typesetCommand // Alias for declare
+	builtins["let"] = letCommand
 }
 
 // Helper function to extract Parts from a CommandElement

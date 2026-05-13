@@ -113,9 +113,22 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// This must happen before here-doc processing since [[ ]] can contain special chars
 	processedInput := PreprocessExtendedTest(input)
 
+	// Rewrite ((expr)) command form to `let "expr"` so the existing parser
+	// can handle it without grammar changes.
+	processedInput = PreprocessArithmeticCommand(processedInput)
+
+	// Resolve $((...)) arithmetic before here-doc preprocessing so << inside
+	// arithmetic (e.g. $((1 << 4))) isn't misread as a here-doc delimiter,
+	// and before command substitution so the $(( prefix isn't consumed as $(.
+	var err error
+	processedInput, err = ExpandArithmetic(processedInput)
+	if err != nil {
+		return nil, fmt.Errorf("arithmetic expansion error: %v", err)
+	}
+
 	// Preprocess for here-documents
 	// This extracts here-doc content and replaces it with input redirection placeholders
-	processedInput, hereDocs, err := PreprocessHereDoc(processedInput)
+	processedInput, hereDocs, err = PreprocessHereDoc(processedInput)
 	if err != nil {
 		return nil, fmt.Errorf("here-document error: %v", err)
 	}
