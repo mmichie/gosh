@@ -1,6 +1,7 @@
 package gosh
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -599,13 +600,42 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 	// Process each command in the pipeline
 	for i, cmdElem := range pipeline.Commands {
-		// For subshells and command groups in pipelines, we need special handling
-		// For now, let's focus on simple commands in pipelines
-		// See gosh-095d for tracking this limitation
+		// Handle subshells and command groups as pipeline stages. We capture
+		// their stdout into a buffer (or pass through to the final stdout / output
+		// file for the last stage). Streaming via os.Pipe is overkill here: the
+		// model matches how Lisp expression stages below are handled.
 		if cmdElem.Simple == nil {
-			fmt.Fprintf(cmd.Stderr, "Subshells and command groups in pipelines not yet supported\n")
-			cmd.ReturnCode = 1
-			return false
+			isLast := i == len(pipeline.Commands)-1
+			var stageOut io.Writer
+			var buf *bytes.Buffer
+			if isLast {
+				if outputFile != nil {
+					stageOut = outputFile
+				} else {
+					stageOut = cmd.Stdout
+				}
+			} else {
+				buf = &bytes.Buffer{}
+				stageOut = buf
+			}
+
+			var ok bool
+			switch {
+			case cmdElem.Subshell != nil:
+				ok = cmd.executeSubshellWithIO(cmdElem.Subshell, lastOutput, stageOut)
+			case cmdElem.CommandGroup != nil:
+				ok = cmd.executeCommandGroupWithIO(cmdElem.CommandGroup, lastOutput, stageOut)
+			default:
+				cmd.ReturnCode = 1
+				return false
+			}
+
+			builtinExitCodes = append(builtinExitCodes, cmd.ReturnCode)
+			if !isLast {
+				lastOutput = bytes.NewReader(buf.Bytes())
+			}
+			_ = ok
+			continue
 		}
 
 		simpleCmd := cmdElem.Simple
@@ -1090,11 +1120,17 @@ func (cmd *Command) setupFileDescriptorDuplication(dupType string) error {
 
 // executeSubshell executes commands in a subshell with isolated environment
 func (cmd *Command) executeSubshell(subshell *parser.Subshell, input io.Reader) bool {
+	return cmd.executeSubshellWithIO(subshell, input, cmd.Stdout)
+}
+
+// executeSubshellWithIO runs a subshell while writing its stdout to the given
+// writer. Used by pipeline stages that need to capture subshell output.
+func (cmd *Command) executeSubshellWithIO(subshell *parser.Subshell, input io.Reader, output io.Writer) bool {
 	// Create a new command for the subshell
 	subCmd := &Command{
 		Command:    subshell.Command,
 		Stdin:      input,
-		Stdout:     cmd.Stdout,
+		Stdout:     output,
 		Stderr:     cmd.Stderr,
 		JobManager: cmd.JobManager,
 		HereDocs:   cmd.HereDocs,
@@ -1141,11 +1177,17 @@ func (cmd *Command) executeSubshell(subshell *parser.Subshell, input io.Reader) 
 
 // executeCommandGroup executes grouped commands without environment isolation
 func (cmd *Command) executeCommandGroup(group *parser.CommandGroup, input io.Reader) bool {
+	return cmd.executeCommandGroupWithIO(group, input, cmd.Stdout)
+}
+
+// executeCommandGroupWithIO runs a command group while writing its stdout to
+// the given writer. Used by pipeline stages that need to capture group output.
+func (cmd *Command) executeCommandGroupWithIO(group *parser.CommandGroup, input io.Reader, output io.Writer) bool {
 	// Create a new command for the group
 	groupCmd := &Command{
 		Command:    group.Command,
 		Stdin:      input,
-		Stdout:     cmd.Stdout,
+		Stdout:     output,
 		Stderr:     cmd.Stderr,
 		JobManager: cmd.JobManager,
 		HereDocs:   cmd.HereDocs,
