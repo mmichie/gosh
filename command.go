@@ -16,17 +16,18 @@ import (
 
 type Command struct {
 	*parser.Command
-	Stdin      io.Reader
-	Stdout     io.Writer
-	Stderr     io.Writer
-	StartTime  time.Time
-	EndTime    time.Time
-	Duration   time.Duration
-	TTY        string
-	EUID       int
-	ReturnCode int
-	JobManager *JobManager
-	HereDocs   HereDocMap
+	Stdin           io.Reader
+	Stdout          io.Writer
+	Stderr          io.Writer
+	StartTime       time.Time
+	EndTime         time.Time
+	Duration        time.Duration
+	TTY             string
+	EUID            int
+	ReturnCode      int
+	ReturnRequested bool // set by `return` builtin so callers can stop iterating
+	JobManager      *JobManager
+	HereDocs        HereDocMap
 }
 
 var m28Interpreter *m28adapter.Interpreter
@@ -113,6 +114,14 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// This must happen before here-doc processing since [[ ]] can contain special chars
 	processedInput := PreprocessExtendedTest(input)
 
+	// Extract `name() { ... }` / `function name { ... }` definitions into
+	// the function table, replacing them with `:` no-ops so the parser sees
+	// only command invocations.
+	processedInput, err := PreprocessFunctionDefinitions(processedInput)
+	if err != nil {
+		return nil, fmt.Errorf("function definition error: %v", err)
+	}
+
 	// Rewrite ((expr)) command form to `let "expr"` so the existing parser
 	// can handle it without grammar changes.
 	processedInput = PreprocessArithmeticCommand(processedInput)
@@ -120,7 +129,6 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 	// Resolve $((...)) arithmetic before here-doc preprocessing so << inside
 	// arithmetic (e.g. $((1 << 4))) isn't misread as a here-doc delimiter,
 	// and before command substitution so the $(( prefix isn't consumed as $(.
-	var err error
 	processedInput, err = ExpandArithmetic(processedInput)
 	if err != nil {
 		return nil, fmt.Errorf("arithmetic expansion error: %v", err)
@@ -214,6 +222,18 @@ func (cmd *Command) Run() {
 
 		// Set the final return code for this block
 		cmd.ReturnCode = returnCode
+
+		// Stop on `return` (the function caller is responsible for
+		// scoping this — outside a function the flag still aborts the
+		// remaining logical blocks, matching bash's behavior of treating
+		// `return` like `exit` at top level isn't done here, but at
+		// least the rest of this command line is skipped).
+		if cmd.ReturnRequested {
+			cmd.EndTime = time.Now()
+			cmd.Duration = cmd.EndTime.Sub(cmd.StartTime)
+			gs.SetLastExitStatus(cmd.ReturnCode)
+			return
+		}
 
 		// Check errexit after the whole logical block
 		if opts.Errexit && returnCode != 0 {
@@ -407,7 +427,20 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 
 		// Execute the command
 		var handled bool
-		if builtin, ok := builtins[cmdName]; ok {
+		// User-defined shell functions take precedence over builtins, matching
+		// bash. Strip quotes from args (the parser keeps them on Parts).
+		if _, isFunc := GetGlobalState().GetFunction(cmdName); isFunc {
+			funcArgs := make([]string, len(args))
+			for i, a := range args {
+				funcArgs[i] = stripQuotes(a)
+			}
+			err := CallUserFunction(cmdName, funcArgs, cmd)
+			if err != nil {
+				fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
+				cmd.ReturnCode = 1
+			}
+			handled = true
+		} else if builtin, ok := builtins[cmdName]; ok {
 			// Handle builtin commands with a properly scoped command
 			// Create a temporary command that only contains this single command
 			singleCmd := &parser.Command{
@@ -434,6 +467,7 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 				if returnErr, ok := err.(*ReturnError); ok {
 					// Use the return code from the return command
 					cmd.ReturnCode = returnErr.Code
+					cmd.ReturnRequested = true
 				} else {
 					fmt.Fprintf(cmd.Stderr, "%s: %v\n", cmdName, err)
 					cmd.ReturnCode = 1

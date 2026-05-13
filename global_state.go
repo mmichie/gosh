@@ -56,6 +56,7 @@ type GlobalState struct {
 	VarAttributes     map[string]*VariableAttributes // Variable attributes from declare
 	InFunction        bool                           // Whether we're currently in a function
 	FunctionDepth     int                            // Nesting depth of function calls
+	ShellFunctions    map[string]string              // User-defined function name -> body source
 	mu                sync.RWMutex
 }
 
@@ -104,6 +105,7 @@ func GetGlobalState() *GlobalState {
 			VarAttributes:     make(map[string]*VariableAttributes),
 			InFunction:        false,
 			FunctionDepth:     0,
+			ShellFunctions:    make(map[string]string),
 		}
 
 		// Also ensure environment variables are set
@@ -651,4 +653,38 @@ func (gs *GlobalState) GetAllVarAttributes() map[string]*VariableAttributes {
 		attrs[k] = v
 	}
 	return attrs
+}
+
+// SetFunction registers a user-defined shell function body under name.
+func (gs *GlobalState) SetFunction(name, body string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.ShellFunctions[name] = body
+}
+
+// GetFunction returns the body source for the named function and whether it
+// is defined.
+func (gs *GlobalState) GetFunction(name string) (string, bool) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	body, ok := gs.ShellFunctions[name]
+	return body, ok
+}
+
+// UnsetFunction removes a user-defined function. No-op if undefined.
+func (gs *GlobalState) UnsetFunction(name string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	delete(gs.ShellFunctions, name)
+}
+
+// ListFunctions returns a snapshot of all defined functions.
+func (gs *GlobalState) ListFunctions() map[string]string {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	out := make(map[string]string, len(gs.ShellFunctions))
+	for k, v := range gs.ShellFunctions {
+		out[k] = v
+	}
+	return out
 }

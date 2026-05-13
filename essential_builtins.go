@@ -48,13 +48,15 @@ func unsetCommand(cmd *Command) error {
 		}
 	}
 
+	gs := GetGlobalState()
 	if unsetFunctions {
-		// TODO: Implement function unset when we have shell functions
-		return fmt.Errorf("unset: -f: shell functions not yet implemented")
+		for _, name := range varNames {
+			gs.UnsetFunction(name)
+		}
+		return nil
 	}
 
 	// Unset environment variables
-	gs := GetGlobalState()
 	for _, name := range varNames {
 		if err := gs.UnsetEnvVar(name); err != nil {
 			return fmt.Errorf("unset: %v", err)
