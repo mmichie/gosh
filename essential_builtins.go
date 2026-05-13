@@ -56,8 +56,22 @@ func unsetCommand(cmd *Command) error {
 		return nil
 	}
 
-	// Unset environment variables
+	// Unset environment variables, arrays, and array elements.
 	for _, name := range varNames {
+		// Array element form: name[subscript]
+		if open := strings.IndexByte(name, '['); open > 0 && strings.HasSuffix(name, "]") {
+			arrName := name[:open]
+			sub := name[open+1 : len(name)-1]
+			if arr, ok := gs.GetArray(arrName); ok {
+				arr.Unset(sub)
+				continue
+			}
+			// Fall through to env var if array doesn't exist.
+		}
+		if _, ok := gs.GetArray(name); ok {
+			gs.UnsetArray(name)
+			continue
+		}
 		if err := gs.UnsetEnvVar(name); err != nil {
 			return fmt.Errorf("unset: %v", err)
 		}
@@ -727,6 +741,8 @@ func declareCommand(cmd *Command) error {
 	printVars := false
 	global := false
 	unsetAttrs := false
+	indexedArray := false
+	assocArray := false
 	i := 0
 
 	for i < len(args) {
@@ -750,8 +766,11 @@ func declareCommand(cmd *Command) error {
 					printVars = true
 				case 'g':
 					global = true
-				case 'a', 'A', 'f', 'F', 'l', 'n', 't', 'u':
-					// These options are not yet implemented
+				case 'a':
+					indexedArray = !unset
+				case 'A':
+					assocArray = !unset
+				case 'f', 'F', 'l', 'n', 't', 'u':
 					return fmt.Errorf("declare: -%c: not yet implemented", flag)
 				default:
 					return fmt.Errorf("declare: -%c: invalid option", flag)
@@ -762,6 +781,31 @@ func declareCommand(cmd *Command) error {
 		} else {
 			break
 		}
+	}
+
+	// declare -a / -A allocates an empty array of the given kind. We don't
+	// support -a/-A combined with an assignment in this MVP — declare them
+	// then assign separately.
+	if indexedArray || assocArray {
+		for _, spec := range args[i:] {
+			name := spec
+			if eq := strings.IndexByte(spec, '='); eq >= 0 {
+				name = spec[:eq]
+				// `declare -A m=(...)` is rare in MVP; ignore initializer.
+			}
+			if !isValidArrayName(name) {
+				return fmt.Errorf("declare: %q: not a valid identifier", name)
+			}
+			if _, exists := gs.GetArray(name); exists {
+				continue
+			}
+			if assocArray {
+				gs.SetArray(name, NewAssociativeArray())
+			} else {
+				gs.SetArray(name, NewIndexedArray())
+			}
+		}
+		return nil
 	}
 
 	varSpecs := args[i:]

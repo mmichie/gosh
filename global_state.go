@@ -57,6 +57,7 @@ type GlobalState struct {
 	InFunction        bool                           // Whether we're currently in a function
 	FunctionDepth     int                            // Nesting depth of function calls
 	ShellFunctions    map[string]string              // User-defined function name -> body source
+	ArrayVars         map[string]*ShellArray         // Indexed and associative array variables
 	mu                sync.RWMutex
 }
 
@@ -106,6 +107,7 @@ func GetGlobalState() *GlobalState {
 			InFunction:        false,
 			FunctionDepth:     0,
 			ShellFunctions:    make(map[string]string),
+			ArrayVars:         make(map[string]*ShellArray),
 		}
 
 		// Also ensure environment variables are set
@@ -687,4 +689,52 @@ func (gs *GlobalState) ListFunctions() map[string]string {
 		out[k] = v
 	}
 	return out
+}
+
+// SetArray installs an array under name. Replaces any existing array.
+func (gs *GlobalState) SetArray(name string, arr *ShellArray) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	gs.ArrayVars[name] = arr
+}
+
+// GetArray returns the array stored under name and whether it exists.
+func (gs *GlobalState) GetArray(name string) (*ShellArray, bool) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	a, ok := gs.ArrayVars[name]
+	return a, ok
+}
+
+// UnsetArray removes an array. No-op if undefined.
+func (gs *GlobalState) UnsetArray(name string) {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	delete(gs.ArrayVars, name)
+}
+
+// SetArrayElement writes value at subscript in the named array, creating an
+// indexed array on demand. If an associative array already exists under name,
+// the subscript is used as a literal key.
+func (gs *GlobalState) SetArrayElement(name, subscript, value string) error {
+	gs.mu.Lock()
+	defer gs.mu.Unlock()
+	arr, ok := gs.ArrayVars[name]
+	if !ok {
+		arr = NewIndexedArray()
+		gs.ArrayVars[name] = arr
+	}
+	return arr.Set(subscript, value)
+}
+
+// GetArrayElement reads the value at subscript. Returns "" and ok=false when
+// either the array or the subscript is unset.
+func (gs *GlobalState) GetArrayElement(name, subscript string) (string, bool) {
+	gs.mu.RLock()
+	defer gs.mu.RUnlock()
+	arr, ok := gs.ArrayVars[name]
+	if !ok {
+		return "", false
+	}
+	return arr.Get(subscript)
 }

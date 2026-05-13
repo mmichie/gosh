@@ -122,6 +122,14 @@ func NewCommand(input string, jobManager *JobManager) (*Command, error) {
 		return nil, fmt.Errorf("function definition error: %v", err)
 	}
 
+	// Pull `name=(elem1 elem2 ...)` array literals out of the input and store
+	// them as indexed arrays. The literal form would otherwise be tokenized
+	// as a subshell by the participle grammar.
+	processedInput, err = PreprocessArrayAssignments(processedInput)
+	if err != nil {
+		return nil, fmt.Errorf("array assignment error: %v", err)
+	}
+
 	// Rewrite ((expr)) command form to `let "expr"` so the existing parser
 	// can handle it without grammar changes.
 	processedInput = PreprocessArithmeticCommand(processedInput)
@@ -301,6 +309,20 @@ func (cmd *Command) executePipeline(pipeline *parser.Pipeline) bool {
 			fmt.Fprintln(cmd.Stdout, result)
 			cmd.ReturnCode = 0
 			return true
+		}
+
+		// Detect a standalone `name[subscript]=value` indexed-array assignment
+		// (the parser tokenizes it as one Word). Standalone form only —
+		// prefix `arr[i]=v cmd` is not handled here yet.
+		if len(simpleCmd.Parts) == 1 {
+			if done, err := ApplyIndexedAssignment(simpleCmd.Parts[0]); err != nil {
+				fmt.Fprintf(cmd.Stderr, "gosh: %v\n", err)
+				cmd.ReturnCode = 1
+				return false
+			} else if done {
+				cmd.ReturnCode = 0
+				return true
+			}
 		}
 
 		// Extract leading NAME=VALUE assignments. With no command following,

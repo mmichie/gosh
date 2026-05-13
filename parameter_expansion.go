@@ -75,14 +75,31 @@ func expandParameterRef(expr string) (string, error) {
 		return "", fmt.Errorf("${}: bad substitution")
 	}
 
-	// Length: ${#name}
+	// Length: ${#name} and ${#name[i]}
 	if expr[0] == '#' && len(expr) > 1 {
-		name := expr[1:]
-		if name == "@" || name == "*" {
+		inner := expr[1:]
+		if inner == "@" || inner == "*" {
 			return strconv.Itoa(GetGlobalState().GetPositionalParamCount()), nil
 		}
-		val, _ := lookupShellVar(name)
+		// ${#arr[@]} / ${#arr[*]} / ${#arr[N]}
+		if name, sub, ok := splitArrayRef(inner); ok {
+			if arr, found := GetGlobalState().GetArray(name); found {
+				if sub == "@" || sub == "*" {
+					return strconv.Itoa(arr.Length()), nil
+				}
+				v, _ := arr.Get(sub)
+				return strconv.Itoa(len(v)), nil
+			}
+			return "0", nil
+		}
+		val, _ := lookupShellVar(inner)
 		return strconv.Itoa(len(val)), nil
+	}
+
+	// Subscripts: ${name[subscript]...}. Detect before splitParamName so
+	// array references are recognized before plain-name lookup.
+	if name, sub, rest, ok := splitArrayNameSub(expr); ok {
+		return expandArrayRef(name, sub, rest)
 	}
 
 	name, rest := splitParamName(expr)
@@ -97,6 +114,124 @@ func expandParameterRef(expr string) (string, error) {
 	}
 
 	return applyParamOperator(name, val, isSet, rest)
+}
+
+// splitArrayRef splits `name[subscript]` into its parts. Used for the length
+// form ${#name[sub]}; returns ok=false if `s` isn't a complete array ref.
+func splitArrayRef(s string) (name, subscript string, ok bool) {
+	open := strings.IndexByte(s, '[')
+	if open <= 0 || !strings.HasSuffix(s, "]") {
+		return "", "", false
+	}
+	name = s[:open]
+	subscript = s[open+1 : len(s)-1]
+	if !isValidArrayName(name) {
+		return "", "", false
+	}
+	return name, subscript, true
+}
+
+// splitArrayNameSub looks for `NAME[subscript]` at the start of expr. Returns
+// the name, subscript, and the remainder after the closing `]` (for operators
+// like ${arr[@]:1:2}).
+func splitArrayNameSub(expr string) (name, sub, rest string, ok bool) {
+	n, r := splitParamName(expr)
+	if n == "" || r == "" || r[0] != '[' {
+		return "", "", "", false
+	}
+	end := strings.IndexByte(r, ']')
+	if end < 0 {
+		return "", "", "", false
+	}
+	return n, r[1:end], r[end+1:], true
+}
+
+// expandArrayRef expands ${name[sub]rest}. `rest` may be empty or contain
+// further operators (slice, default, etc.).
+func expandArrayRef(name, sub, rest string) (string, error) {
+	gs := GetGlobalState()
+	arr, exists := gs.GetArray(name)
+
+	// Expand variable references in the subscript so ${arr[$idx]} works.
+	if sub != "@" && sub != "*" {
+		expanded, err := ExpandSpecialVariablesE(sub)
+		if err != nil {
+			return "", err
+		}
+		sub = expanded
+	}
+
+	// Whole-array forms: [@] and [*]. Join with space for both (gosh uses a
+	// fixed IFS-as-space until we model IFS proper).
+	if sub == "@" || sub == "*" {
+		var values []string
+		if exists {
+			values = arr.Values()
+		}
+		if rest == "" {
+			return strings.Join(values, " "), nil
+		}
+		// Slice form: ${arr[@]:offset:length}
+		if strings.HasPrefix(rest, ":") {
+			sliced, err := sliceArrayValues(values, rest[1:])
+			if err != nil {
+				return "", err
+			}
+			return strings.Join(sliced, " "), nil
+		}
+		// Fall through to operator handling on the joined string.
+		return applyParamOperator(name, strings.Join(values, " "), exists, rest)
+	}
+
+	// Single-element form: ${name[N]} or ${name[key]}
+	var val string
+	var isSet bool
+	if exists {
+		val, isSet = arr.Get(sub)
+	}
+	if rest == "" {
+		return val, nil
+	}
+	return applyParamOperator(name, val, isSet, rest)
+}
+
+// sliceArrayValues slices values per the bash ${arr[@]:offset:length} form.
+// rest is the portion after the leading `:` (so it's "offset" or
+// "offset:length").
+func sliceArrayValues(values []string, rest string) ([]string, error) {
+	parts := strings.SplitN(rest, ":", 2)
+	offset, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return nil, fmt.Errorf("array slice: bad offset %q", parts[0])
+	}
+	if offset < 0 {
+		offset = len(values) + offset
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(values) {
+		return nil, nil
+	}
+	end := len(values)
+	if len(parts) == 2 {
+		length, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+		if err != nil {
+			return nil, fmt.Errorf("array slice: bad length %q", parts[1])
+		}
+		if length < 0 {
+			end = len(values) + length
+		} else {
+			end = offset + length
+		}
+	}
+	if end < offset {
+		end = offset
+	}
+	if end > len(values) {
+		end = len(values)
+	}
+	return values[offset:end], nil
 }
 
 // splitParamName extracts the leading parameter name from an expression and
